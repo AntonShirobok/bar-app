@@ -173,7 +173,7 @@ function drawHome(d) {
 
   // бар сейчас: счётчики и кто отметился
   if (d.bar) {
-    html += `<div class="card tapcard" data-act="openBar"><div class="row between"><h2 style="margin:0">Бар сейчас</h2><span class="chev"></span></div>
+    html += `<div class="card tapcard" data-act="openBar"><div class="row between"><h2 style="margin:0">🍻 Грязнульки</h2><span class="chev"></span></div>
       ${countersHtml(d.bar)}<div class="muted small" style="margin-top:6px">Отметились сегодня: <b>${d.bar.total}</b></div></div>`;
   }
 
@@ -520,12 +520,18 @@ function drawMenuScreen() {
   $("#mq").addEventListener("input", e => { S.menuQ = e.target.value; drawMenu(); });
   drawMenu();
 }
-/** «150.0» → «150 ккал/100 г»; текст вроде «58 кл на 100гр.» показываем как есть. */
-function kcal(v) {
-  const s = String(v || "").trim();
-  if (!s) return "";
-  return /^\d+([.,]\d+)?$/.test(s) ? `${Math.round(parseFloat(s.replace(",", ".")))} ккал/100 г` : h(s);
+/** Первое число в строке: «58 кл на 100гр.» → 58, «139 гр» → 139. */
+function firstNum(v) {
+  const m = /(\d+(?:[.,]\d+)?)/.exec(String(v || ""));
+  return m ? parseFloat(m[1].replace(",", ".")) : null;
 }
+/** Калорийность готового блюда: ккал на 100 г × выход ÷ 100. Без выхода — как в таблице, «на 100 г». */
+function kcalTotal(i) {
+  const per100 = firstNum(i.calories), w = firstNum(i.weight);
+  if (per100 === null) return i.calories ? h(i.calories) : "";
+  return w ? `${Math.round(per100 * w / 100)} ккал` : `${Math.round(per100)} ккал/100 г`;
+}
+function kcal(v) { return kcalTotal({ calories: v }); }
 function menuItems() {
   const m = S.menu, q = norm(S.menuQ || "");
   return (S.menuMode === "kitchen" ? m.kitchen.items : m.bar)
@@ -546,7 +552,7 @@ function drawMenu() {
     <div class="dish ${kitchen ? "tap" : ""}" ${kitchen ? `data-act="dish" data-k="${h(i.section + "|" + i.name)}"` : ""}>${i.photo ? `<img src="${h(photoSrc(i.photo, 240))}" alt="" width="76" height="76" decoding="async">` : (kitchen && anyPhoto ? '<div class="nophoto">🍽</div>' : "")}
       <div class="grow"><div class="row between" style="align-items:flex-start"><div class="t">${h(i.name)} ${i.new ? '<span class="tag ok">NEW</span>' : ""}</div>
       ${i.price ? `<b class="num" style="white-space:nowrap">${money(i.price)}</b>` : ""}</div>
-      ${i.weight || i.calories ? `<div class="muted small">${[h(i.weight || ""), kcal(i.calories)].filter(Boolean).join(" · ")}</div>` : ""}
+      ${i.weight || i.calories ? `<div class="muted small">${[h(i.weight || ""), kcalTotal(i)].filter(Boolean).join(" · ")}</div>` : ""}
       <div class="s clamp">${h(i.composition)}</div>
       ${alTags(i)}
     </div></div>`).join("")}</div>`; }).join("");
@@ -566,7 +572,7 @@ function renderDish(k) {
     <div class="card"><h2>Состав</h2><div>${i.composition ? linkify(i.composition, i.name) : "—"}</div>
       ${i.sauce ? `<h2 style="margin-top:12px">Соус</h2><div>${linkify(i.sauce, i.name)}</div>` : ""}</div>
     ${(i.details || []).length ? `<div class="card">${i.details.map(x => `<h2 style="margin-top:8px">${h(x.label)}</h2><div>${h(x.value)}</div>`).join("")}</div>` : ""}
-    <div class="card">${row("Выход", i.weight)}${row("Калорийность на 100 г", i.calories)}${row("Время приготовления", i.time)}${row("Аллергены / диета", i.allergens_text)}</div>
+    <div class="card">${row("Выход", i.weight)}${i.calories ? `<div class="stat"><span>Калорийность</span><span class="right">${kcalTotal(i)}</span></div>` : ""}${row("Время приготовления", i.time)}${row("Аллергены / диета", i.allergens_text)}</div>
     ${i.notes && i.notes.length ? `<div class="card"><h2>Пояснения</h2>${i.notes.map(n => `<p class="small" style="margin:0 0 8px">${h(n)}</p>`).join("")}</div>` : ""}`;
 }
 
@@ -582,7 +588,7 @@ function renderMore() {
   html += `<div class="card" style="padding:0"><div class="list" style="margin:0">
     ${row("open", "allergens", "🥜", "Аллергены", "Составы и фильтр «без…»")}
     ${row("open", "profile", "🙋", "Профиль", h(S.me.role || "роль не назначена"))}
-    ${row("open", "bar", "🥃", "Бар сейчас", "Кто отметился, счётчики")}
+    ${row("open", "bar", "🍻", "Грязнульки", "Кто сейчас в баре, счётчики")}
     ${S.me.is_owner ? row("open", "admin", "🔐", "Админ", "Сотрудники, роли, зарплаты, Нетмонет") : ""}</div></div>
     <div class="muted small" style="text-align:center;margin-top:14px">Данные из Google Таблиц обновляются раз в 10 минут</div>`;
   view.innerHTML = html;
@@ -936,7 +942,7 @@ function countersHtml(p) {
 }
 ACT.openBar = () => push(renderBar);
 function renderBar() {
-  setHead("Бар", human(S.me.today));
+  setHead("Грязнульки", human(S.me.today));
   fresh("bar", "presence", {}, drawBar);
 }
 function drawBar(p) {
@@ -994,7 +1000,7 @@ ACT.cntSave = (ds, el) => saveCounters({ set: { highball: $("#cnt_highball").val
 
 // ---------- старт ----------
 const TABS = {
-  home: ["🏠", "Главная"], schedule: ["📅", "График"], menu: ["🍽", "Меню"], more: ["☰", "Ещё"], bar: ["🥃", "Бар"],
+  home: ["🏠", "Главная"], schedule: ["📅", "График"], menu: ["🍽", "Меню"], more: ["☰", "Ещё"], bar: ["🍻", "Грязнульки"],
 };
 function setTabs(list) {
   $("#tabs").innerHTML = list.map(t => `<button data-tab="${t}"><span class="ic">${TABS[t][0]}</span><span>${TABS[t][1]}</span></button>`).join("");
