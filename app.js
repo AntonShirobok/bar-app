@@ -473,31 +473,61 @@ async function renderMenu() {
   const m = S.menu;
   let html = `<div class="seg"><button data-act="menuMode" data-m="bar" class="${S.menuMode === "bar" ? "on" : ""}">Бар</button>
     <button data-act="menuMode" data-m="kitchen" class="${S.menuMode === "kitchen" ? "on" : ""}">Кухня</button></div>`;
-  if (S.menuMode === "kitchen" && !m.kitchen.configured) {
-    view.innerHTML = html + `<div class="card">${empty("🍽", "Меню кухни скоро появится:<br>подключаем таблицу с фотографиями, составом и аллергенами.")}</div>`;
+  const kitchen = S.menuMode === "kitchen";
+  if (kitchen && m.kitchen.error && !m.kitchen.items.length) {
+    view.innerHTML = html + `<div class="card">${empty("🍽", h(m.kitchen.error))}</div>`;
     return;
   }
-  html += `<input class="search" id="mq" placeholder="Поиск по названию или составу" value="${h(S.menuQ || "")}"><div id="menuList"></div>`;
+  html += `<input class="search" id="mq" placeholder="Поиск по названию или составу" value="${h(S.menuQ || "")}">`;
+  html += `<div class="muted small" style="margin:0 4px 6px">Показать <b>без</b>:</div><div class="chips">${Object.keys(m.titles).map(c =>
+    `<button class="chip ${S.alFilter.has(c) ? "on" : ""}" data-act="menuAl" data-c="${c}">${h(m.titles[c])}</button>`).join("")}</div><div id="menuList"></div>`;
   view.innerHTML = html;
   $("#mq").addEventListener("input", e => { S.menuQ = e.target.value; drawMenu(); });
   drawMenu();
 }
-function drawMenu() {
+function menuItems() {
   const m = S.menu, q = norm(S.menuQ || "");
-  const items = (S.menuMode === "kitchen" ? m.kitchen.items : m.bar).filter(i => !q || norm(i.name + " " + i.composition).includes(q));
-  const box = $("#menuList");
-  if (!items.length) { box.innerHTML = `<div class="card">${empty("🔍", "Ничего не нашёл")}</div>`; return; }
+  return (S.menuMode === "kitchen" ? m.kitchen.items : m.bar)
+    .filter(i => (!q || norm(i.name + " " + i.composition + " " + (i.sauce || "")).includes(q)) && ![...S.alFilter].some(c => i.allergens.includes(c)));
+}
+function alTags(i) {
+  const m = S.menu;
+  const tags = i.allergens.map(a => `<span class="tag bad">${h(m.titles[a])}</span>`).concat((i.allergens_other || []).map(a => `<span class="tag">${h(a)}</span>`));
+  return tags.length ? `<div class="tags">${tags.join(" ")}${i.checked ? "" : ' <span class="muted small">не проверено</span>'}</div>` : "";
+}
+function drawMenu() {
+  const items = menuItems(), box = $("#menuList"), kitchen = S.menuMode === "kitchen";
+  if (!items.length) { box.innerHTML = `<div class="card">${empty("🔍", "Ничего не подходит")}</div>`; return; }
   const groups = {};
   items.forEach(i => (groups[i.section || "Меню"] = groups[i.section || "Меню"] || []).push(i));
-  box.innerHTML = Object.entries(groups).map(([g, list]) => `<div class="card"><h2>${h(g)}</h2>${list.map(i => `
-    <div class="dish">${i.photo ? `<img src="${h(i.photo)}" alt="" loading="lazy">` : ""}
-      <div class="grow"><div class="t">${h(i.name)} ${i.new ? '<span class="tag ok">NEW</span>' : ""}</div>
-      ${i.description ? `<div class="small">${h(i.description)}</div>` : ""}
-      <div class="s">${h(i.composition)}</div>
-      ${i.allergens.length ? `<div class="tags">${i.allergens.map(a => `<span class="tag bad">${h(m.titles[a])}</span>`).join(" ")}${i.checked ? "" : ' <span class="muted small">не проверено</span>'}</div>` : ""}
-    </div></div>`).join("")}</div>`).join("");
+  const order = Object.entries(groups).sort((x, y) => (/соус/i.test(x[0]) ? 1 : 0) - (/соус/i.test(y[0]) ? 1 : 0));
+  box.innerHTML = order.map(([g, list]) => { const anyPhoto = list.some(i => i.photo); return `<div class="card"><h2>${h(g)} · ${list.length}</h2>${list.map(i => `
+    <div class="dish ${kitchen ? "tap" : ""}" ${kitchen ? `data-act="dish" data-k="${h(i.section + "|" + i.name)}"` : ""}>${i.photo ? `<img src="${h(i.photo)}" alt="" loading="lazy">` : (kitchen && anyPhoto ? '<div class="nophoto">🍽</div>' : "")}
+      <div class="grow"><div class="row between" style="align-items:flex-start"><div class="t">${h(i.name)} ${i.new ? '<span class="tag ok">NEW</span>' : ""}</div>
+      ${i.price ? `<b class="num" style="white-space:nowrap">${money(i.price)}</b>` : ""}</div>
+      ${i.weight ? `<div class="muted small">${h(i.weight)}</div>` : ""}
+      <div class="s clamp">${h(i.composition)}</div>
+      ${alTags(i)}
+    </div></div>`).join("")}</div>`; }).join("");
 }
 ACT.menuMode = ds => { S.menuMode = ds.m; renderMenu(); };
+ACT.menuAl = (ds, el) => { S.alFilter.has(ds.c) ? S.alFilter.delete(ds.c) : S.alFilter.add(ds.c); el.classList.toggle("on"); drawMenu(); };
+ACT.dish = ds => push(() => renderDish(ds.k));
+function renderDish(k) {
+  const i = S.menu.kitchen.items.find(x => x.section + "|" + x.name === k);
+  if (!i) { view.innerHTML = empty("😕", "Блюдо пропало из меню"); return; }
+  setHead(i.name, i.section);
+  const row = (t, v) => v ? `<div class="stat"><span>${t}</span><span class="right">${h(v)}</span></div>` : "";
+  view.innerHTML = `${i.photo ? `<img class="hero-photo" src="${h(i.photo.replace("sz=w800", "sz=w1200"))}" alt="${h(i.name)}">` : ""}
+    <div class="card"><div class="row between" style="align-items:flex-start"><h3>${h(i.name)}</h3>${i.price ? `<b class="num" style="font-size:18px">${money(i.price)}</b>` : ""}</div>
+      ${i.description ? `<div style="margin-top:6px">${h(i.description)}</div>` : ""}
+      ${alTags(i)}</div>
+    <div class="card"><h2>Состав</h2><div>${h(i.composition || "—")}</div>
+      ${i.sauce ? `<h2 style="margin-top:12px">Соус</h2><div>${h(i.sauce)}</div>` : ""}</div>
+    ${(i.details || []).length ? `<div class="card">${i.details.map(x => `<h2 style="margin-top:8px">${h(x.label)}</h2><div>${h(x.value)}</div>`).join("")}</div>` : ""}
+    <div class="card">${row("Выход", i.weight)}${row("Калорийность на 100 г", i.calories)}${row("Время приготовления", i.time)}${row("Аллергены / диета", i.allergens_text)}</div>
+    ${i.notes && i.notes.length ? `<div class="card"><h2>Пояснения</h2>${i.notes.map(n => `<p class="small" style="margin:0 0 8px">${h(n)}</p>`).join("")}</div>` : ""}`;
+}
 
 // ================= ЕЩЁ =================
 function renderMore() {

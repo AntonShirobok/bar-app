@@ -174,3 +174,10 @@ table.t tr.hl td { background: var(--soft); }
 .dish:first-of-type { border-top: 0; }
 .dish img { width: 76px; height: 76px; object-fit: cover; border-radius: 10px; flex: none; background: var(--bg); }
 .dish .tags { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.dish.tap { cursor: pointer; }
+.dish.tap:active { background: var(--soft); }
+.nophoto { width: 76px; height: 76px; border-radius: 10px; flex: none; background: var(--bg); display: grid; place-items: center; font-size: 26px; opacity: .5; }
+.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.hero-photo { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--r); margin-bottom: 10px; background: var(--card); display: block; }
+.dish .t { font-weight: 600; }
+.dish .s { color: var(--hint); font-size: 13px; margin-top: 2px; }
