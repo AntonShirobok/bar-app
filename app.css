@@ -190,3 +190,14 @@ a.gl { color: var(--link); text-decoration: underline; text-decoration-style: do
 .sheet-x { border: 0; background: var(--soft); color: var(--accent); width: 32px; height: 32px; border-radius: 50%; font-size: 15px; flex: none; }
 .tsel { display: flex; align-items: center; gap: 6px; }
 .tsel select { flex: 1; text-align: center; }
+/* --- админка: плитки --- */
+.sect { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--head); font-weight: 600; margin: 14px 4px 8px; }
+.tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.tile { background: var(--card); border-radius: var(--r); padding: 12px; cursor: pointer; min-width: 0; }
+.tile:active { background: var(--soft); }
+.tile.pending { outline: 1.5px solid var(--warn); }
+.tile .t { font-weight: 600; margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile .btns .btn { flex: 1; }
+.ava { width: 40px; height: 40px; border-radius: 50%; background: var(--soft); color: var(--accent); display: grid; place-items: center; font-weight: 700; font-size: 15px; }
+.ava.big { width: 52px; height: 52px; font-size: 19px; flex: none; }
+.badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--danger); color: #fff; font-size: 11px; line-height: 18px; }
