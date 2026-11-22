@@ -521,9 +521,9 @@ function renderDish(k) {
   view.innerHTML = `${i.photo ? `<img class="hero-photo" src="${h(i.photo.replace("sz=w800", "sz=w1200"))}" alt="${h(i.name)}">` : ""}
     <div class="card"><div class="row between" style="align-items:flex-start"><h3>${h(i.name)}</h3>${i.price ? `<b class="num" style="font-size:18px">${money(i.price)}</b>` : ""}</div>
       ${i.description ? `<div style="margin-top:6px">${h(i.description)}</div>` : ""}
-      ${alTags(i)}</div>
-    <div class="card"><h2>Состав</h2><div>${h(i.composition || "—")}</div>
-      ${i.sauce ? `<h2 style="margin-top:12px">Соус</h2><div>${h(i.sauce)}</div>` : ""}</div>
+      ${alTags(i)}${Object.keys(i.allergens_via || {}).length ? '<div class="muted small" style="margin-top:4px">' + Object.entries(i.allergens_via).map(([c, n]) => h(S.menu.titles[c]) + ' — из «' + h(n.join('», «')) + '»').join('; ') + '</div>' : ''}</div>
+    <div class="card"><h2>Состав</h2><div>${i.composition ? linkify(i.composition, i.name) : "—"}</div>
+      ${i.sauce ? `<h2 style="margin-top:12px">Соус</h2><div>${linkify(i.sauce, i.name)}</div>` : ""}</div>
     ${(i.details || []).length ? `<div class="card">${i.details.map(x => `<h2 style="margin-top:8px">${h(x.label)}</h2><div>${h(x.value)}</div>`).join("")}</div>` : ""}
     <div class="card">${row("Выход", i.weight)}${row("Калорийность на 100 г", i.calories)}${row("Время приготовления", i.time)}${row("Аллергены / диета", i.allergens_text)}</div>
     ${i.notes && i.notes.length ? `<div class="card"><h2>Пояснения</h2>${i.notes.map(n => `<p class="small" style="margin:0 0 8px">${h(n)}</p>`).join("")}</div>` : ""}`;
@@ -748,6 +748,68 @@ async function renderAdminSalary(off) {
   } catch (e) { fail(e); }
 }
 ACT.aSal = ds => replaceTop(() => renderAdminSalary(Number(ds.o)));
+
+// ---------- справочник соусов: ссылки в составе и окно снизу ----------
+const GL_NOT = "[^0-9a-zа-я]";
+function glossTerms() {
+  const g = (S.menu && S.menu.kitchen && S.menu.kitchen.glossary) || [];
+  if (S._glTerms && S._glFor === g) return S._glTerms;
+  const terms = [];
+  g.forEach((e, i) => [e.name].concat(e.aliases || []).forEach(t => {
+    const words = t.toLowerCase().replace(/ё/g, "е").replace(/[^0-9a-zа-я]+/g, " ").trim().split(" ").filter(Boolean);
+    if (words.join(" ").length >= 3) terms.push({ i, len: words.join(" ").length, re: new RegExp(`(^|${GL_NOT})(${words.join(`${GL_NOT}+`)})(?=$|${GL_NOT})`, "g") });
+  }));
+  terms.sort((a, b) => b.len - a.len);
+  S._glTerms = terms; S._glFor = g;
+  return terms;
+}
+/** Текст → HTML, где названия из справочника — ссылки. Своё имя (у самого соуса) не подсвечиваем. */
+function linkify(text, selfName) {
+  const g = (S.menu && S.menu.kitchen && S.menu.kitchen.glossary) || [];
+  const src = String(text || ""), low = src.toLowerCase().replace(/ё/g, "е");
+  const taken = [];
+  for (const t of glossTerms()) {
+    if (selfName && g[t.i].name === selfName) continue;
+    t.re.lastIndex = 0;
+    let m;
+    while ((m = t.re.exec(low))) {
+      const s = m.index + m[1].length, e = s + m[2].length;
+      if (!taken.some(x => s < x.e && e > x.s)) taken.push({ s, e, i: t.i });
+      if (t.re.lastIndex === m.index) t.re.lastIndex++;
+    }
+  }
+  taken.sort((a, b) => a.s - b.s);
+  let out = "", pos = 0;
+  for (const x of taken) {
+    out += h(src.slice(pos, x.s)) + `<a class="gl" data-gi="${x.i}">${h(src.slice(x.s, x.e))}</a>`;
+    pos = x.e;
+  }
+  return out + h(src.slice(pos));
+}
+function openGloss(i) {
+  const e = S.menu.kitchen.glossary[i];
+  if (!e) return;
+  let sh = $("#sheet");
+  if (!sh) {
+    sh = document.createElement("div");
+    sh.id = "sheet";
+    document.body.appendChild(sh);
+    sh.addEventListener("click", ev => {
+      const a = ev.target.closest("[data-gi]");
+      if (a) { haptic(); openGloss(Number(a.dataset.gi)); return; }
+      if (ev.target === sh || ev.target.closest(".sheet-x")) closeGloss();
+    });
+  }
+  const tags = (e.allergens || []).map(a => `<span class="tag bad">${h(S.menu.titles[a])}</span>`)
+    .concat((e.allergens_other || []).map(a => `<span class="tag">${h(a)}</span>`)).join(" ");
+  sh.innerHTML = `<div class="sheet-card" role="dialog" aria-label="${h(e.name)}"><div class="row between"><h3>${h(e.name)}</h3>
+    <button class="sheet-x" aria-label="Закрыть">✕</button></div>
+    <div style="margin-top:6px">${e.composition ? linkify(e.composition, e.name) : '<span class="muted">Состав не заполнен</span>'}</div>
+    ${tags ? `<div class="tags" style="margin-top:10px">${tags}</div>` : ""}</div>`;
+  requestAnimationFrame(() => sh.classList.add("on"));
+}
+function closeGloss() { const sh = $("#sheet"); if (sh) sh.classList.remove("on"); }
+view.addEventListener("click", ev => { const a = ev.target.closest("[data-gi]"); if (a) { haptic(); openGloss(Number(a.dataset.gi)); } });
 
 // ---------- старт ----------
 (async function init() {
