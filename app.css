@@ -205,3 +205,6 @@ a.gl { color: var(--link); text-decoration: underline; text-decoration-style: do
 .ticon { font-size: 26px; line-height: 1; }
 .dotwarn { position: absolute; top: 12px; right: 12px; width: 10px; height: 10px; border-radius: 50%; background: var(--danger); }
 .item .ava { width: 36px; height: 36px; font-size: 13px; flex: none; }
+/* --- бар: счётчики --- */
+.counters { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+.cnum { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }

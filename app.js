@@ -75,7 +75,7 @@ function go(tab) {
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
   backBtn();
   window.scrollTo(0, 0);
-  ({ home: renderHome, schedule: renderSchedule, menu: renderMenu, more: renderMore })[tab]();
+  ({ home: renderHome, schedule: renderSchedule, menu: renderMenu, more: renderMore, bar: renderBar })[tab]();
 }
 function push(fn) { S.stack.push(fn); backBtn(); window.scrollTo(0, 0); fn(); }
 function replaceTop(fn) { S.stack[S.stack.length - 1] = fn; fn(); }
@@ -85,7 +85,7 @@ function backBtn() {
   if (S.stack.length) tg.BackButton.show(); else tg.BackButton.hide();
 }
 if (tg) tg.BackButton.onClick(back);
-document.querySelectorAll("#tabs button").forEach(b => b.addEventListener("click", () => { haptic(); go(b.dataset.tab); }));
+$("#tabs").addEventListener("click", e => { const b = e.target.closest("button[data-tab]"); if (b) { haptic(); go(b.dataset.tab); } });
 view.addEventListener("click", e => {
   const el = e.target.closest("[data-act]");
   if (!el) return;
@@ -169,6 +169,12 @@ function drawHome(d) {
       <button class="btn" data-act="hoursForm">＋ Записать часы</button></div>`;
   } else if (!S.me.tips_name) {
     html += `<div class="card muted small">Деньги появятся, когда владелец свяжет тебя с таблицей чаевых.</div>`;
+  }
+
+  // бар сейчас: счётчики и кто отметился
+  if (d.bar) {
+    html += `<div class="card tapcard" data-act="openBar"><div class="row between"><h2 style="margin:0">Бар сейчас</h2><span class="chev"></span></div>
+      ${countersHtml(d.bar)}<div class="muted small" style="margin-top:6px">Отметились сегодня: <b>${d.bar.total}</b></div></div>`;
   }
 
   // заготовки (бармены)
@@ -576,11 +582,12 @@ function renderMore() {
   html += `<div class="card" style="padding:0"><div class="list" style="margin:0">
     ${row("open", "allergens", "🥜", "Аллергены", "Составы и фильтр «без…»")}
     ${row("open", "profile", "🙋", "Профиль", h(S.me.role || "роль не назначена"))}
+    ${row("open", "bar", "🥃", "Бар сейчас", "Кто отметился, счётчики")}
     ${S.me.is_owner ? row("open", "admin", "🔐", "Админ", "Сотрудники, роли, зарплаты, Нетмонет") : ""}</div></div>
     <div class="muted small" style="text-align:center;margin-top:14px">Данные из Google Таблиц обновляются раз в 10 минут</div>`;
   view.innerHTML = html;
 }
-ACT.open = ds => push({ tk: renderTK, stock: renderStock, allergens: renderAllergens, guest: renderGuest, admin: renderAdmin, profile: renderProfile }[ds.s]);
+ACT.open = ds => push({ bar: renderBar, tk: renderTK, stock: renderStock, allergens: renderAllergens, guest: renderGuest, admin: renderAdmin, profile: renderProfile }[ds.s]);
 
 function renderProfile() {
   setHead("Профиль");
@@ -701,12 +708,13 @@ function drawAdminHome() {
     ${t("aCat", "staff", ADMIN_CATS.staff.icon, "Сотрудники", `${n("staff")} чел.`)}
     ${t("aCat", "guests", ADMIN_CATS.guests.icon, "Гости", `${n("guests")} чел.`)}
     ${t("aCat", "closed", ADMIN_CATS.closed.icon, "Доступ закрыт", `${n("closed")} чел.`)}
+    ${t("aSec", "counters", "🥃", "Счётчики", "Хайболы, шампейн шауэры")}
     ${t("aSec", "money", "💰", "Деньги", "Выплаты, зарплаты, Нетмонет")}
     ${t("aSec", "data", "⚙️", "Данные", a.bot_online ? "бот на связи" : "бот не на связи", !a.bot_online)}
   </div>`;
 }
 ACT.aCat = ds => push(() => renderAdminList(ds.c));
-ACT.aSec = ds => push(ds.c === "money" ? renderAdminMoney : renderAdminData);
+ACT.aSec = ds => push(ds.c === "money" ? renderAdminMoney : ds.c === "counters" ? renderAdminCounters : renderAdminData);
 
 function renderAdminList(cat) {
   const c = ADMIN_CATS[cat];
@@ -920,16 +928,86 @@ function preloadPhotos(menu) {
   list.forEach(src => { if (preloaded.has(src)) return; preloaded.add(src); const im = new Image(); im.decoding = "async"; im.src = src; });
 }
 
+// ================= БАР: чекины и счётчики =================
+function countersHtml(p) {
+  const titles = p.counter_titles || [{ key: "highball", title: "Хайболов выпито", icon: "🥃" }, { key: "champagne", title: "Шампейн шауэров", icon: "🍾" }];
+  return `<div class="counters">${titles.map(t => `<div><div class="cnum num">${(p.counters[t.key] || 0).toLocaleString("ru-RU")}</div>
+    <div class="muted small">${t.icon} ${h(t.title)}</div></div>`).join("")}</div>`;
+}
+ACT.openBar = () => push(renderBar);
+function renderBar() {
+  setHead("Бар", human(S.me.today));
+  fresh("bar", "presence", {}, drawBar);
+}
+function drawBar(p) {
+  S.bar = p;
+  const me = p.me;
+  let html = `<div class="card hero">${countersHtml(p)}</div>`;
+  if (me && me.in) {
+    html += `<div class="card"><div class="row between"><div><b>Ты в баре</b> с ${h(me.time)}${me.anon ? ' <span class="tag">невидимка</span>' : ""}</div></div>
+      <div class="btns" style="margin-top:8px"><button class="btn ghost" data-act="checkin" data-anon="${me.anon ? 0 : 1}">${me.anon ? "Показать меня" : "Стать невидимкой"}</button>
+      <button class="btn danger" data-act="checkout">Я ушёл</button></div></div>`;
+  } else {
+    html += `<div class="card"><button class="btn" data-act="checkin" data-anon="0">📍 Я в баре</button>
+      <button class="btn ghost" data-act="checkin" data-anon="1">👻 Отметиться невидимкой</button>
+      <div class="muted small" style="margin-top:6px">Невидимку видно только в общем числе гостей. Отметки сбрасываются к утру.</div></div>`;
+  }
+  html += `<div class="card"><h2>Сейчас в баре · ${p.total}</h2>`;
+  if (!p.here.length && !p.anon) html += `<div class="muted small">Пока никто не отметился</div>`;
+  else html += `<div class="list">${p.here.map(x => `<div class="item${x.me ? " meitem" : ""}"><div class="ava">${h(initials(x.name))}</div>
+      <div class="grow t">${h(x.name)}</div><div class="muted small num">с ${h(x.time)}</div></div>`).join("")}
+      ${p.anon ? `<div class="item muted">👻 и ещё ${p.anon} инкогнито</div>` : ""}</div>`;
+  view.innerHTML = html + `</div>`;
+}
+async function barAction(action, params, el) {
+  if (el) el.disabled = true;
+  try { const p = await api(action, params); LS.set("bar", p); haptic("medium"); drawBar(p); }
+  catch (e) { toast(e.message); if (el) el.disabled = false; }
+}
+ACT.checkin = (ds, el) => barAction("checkin", { anon: ds.anon === "1" }, el);
+ACT.checkout = async (ds, el) => { if (await confirmBox("Отметить, что ты ушёл?")) barAction("checkout", {}, el); };
+
+function renderAdminCounters() {
+  setHead("Счётчики");
+  const p = S.bar || LS.get("bar") || (S.dash && S.dash.bar) || { counters: {} };
+  const c = p.counters || {};
+  const row = (k, title) => `<label class="l">${title}</label><div class="row">
+    <input class="f num" id="cnt_${k}" type="number" inputmode="numeric" min="0" value="${c[k] || 0}">
+    <button class="btn sm ghost" data-act="cntAdd" data-k="${k}" data-n="1">+1</button>
+    <button class="btn sm ghost" data-act="cntAdd" data-k="${k}" data-n="5">+5</button></div>`;
+  view.innerHTML = `<div class="card">${row("highball", "🥃 Хайболов выпито")}${row("champagne", "🍾 Шампейн шауэров")}
+    <button class="btn" data-act="cntSave">Сохранить</button>
+    <div class="muted small" style="margin-top:6px">Цифры видят все, у кого есть доступ: на главной и во вкладке «Бар».</div></div>`;
+}
+async function saveCounters(body, el) {
+  if (el) el.disabled = true;
+  try {
+    const c = await api("admin_counters", body);
+    ["highball", "champagne"].forEach(k => { const i = $("#cnt_" + k); if (i) i.value = c[k]; });
+    const b = LS.get("bar"); if (b) { b.counters = c; LS.set("bar", b); S.bar = b; }
+    toast("Счётчики обновлены");
+  } catch (e) { toast(e.message); }
+  if (el) el.disabled = false;
+}
+ACT.cntAdd = (ds, el) => saveCounters({ add: { [ds.k]: Number(ds.n) } }, el);
+ACT.cntSave = (ds, el) => saveCounters({ set: { highball: $("#cnt_highball").value, champagne: $("#cnt_champagne").value } }, el);
+
 // ---------- старт ----------
+const TABS = {
+  home: ["🏠", "Главная"], schedule: ["📅", "График"], menu: ["🍽", "Меню"], more: ["☰", "Ещё"], bar: ["🥃", "Бар"],
+};
+function setTabs(list) {
+  $("#tabs").innerHTML = list.map(t => `<button data-tab="${t}"><span class="ic">${TABS[t][0]}</span><span>${TABS[t][1]}</span></button>`).join("");
+  $("#tabs").style.display = "";
+}
 function startUI() {
-  if (S.me.is_guest) {  // гость: только меню
-    $("#tabs").style.display = "none";
-    document.body.style.paddingBottom = "16px";
+  if (S.me.is_guest) {  // гость: «Бар» (чекин, кто здесь, счётчики) и «Меню»
+    setTabs(["bar", "menu"]);
     S.menuMode = "kitchen";
-    go("menu");
+    go("bar");
     return;
   }
-  $("#tabs").style.display = "";
+  setTabs(["home", "schedule", "menu", "more"]);
   const start = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || "home";
   go(["home", "schedule", "menu", "more"].includes(start) ? start : "home");
 }
@@ -972,6 +1050,7 @@ function prefetch() {
   LS.set("me", boot.me);
   if (boot.dashboard) LS.set("dash", boot.dashboard);
   if (boot.menu) LS.set("menu", boot.menu);
+  if (boot.presence) LS.set("bar", boot.presence);
   if (roleChanged) startUI();
   else if (S.tab === "home" && !S.stack.length && boot.dashboard) drawHome(boot.dashboard);
   else if (S.me.is_guest && boot.menu && !S.stack.length) { S.menu = boot.menu; drawMenuScreen(); }
