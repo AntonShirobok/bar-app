@@ -1059,6 +1059,9 @@ function prefetch() {
   if (boot.presence) LS.set("bar", boot.presence);
   if (roleChanged) startUI();
   else if (S.tab === "home" && !S.stack.length && boot.dashboard) drawHome(boot.dashboard);
-  else if (S.me.is_guest && boot.menu && !S.stack.length) { S.menu = boot.menu; drawMenuScreen(); }
+  else if (S.me.is_guest && !S.stack.length) {  // гостю — обновить тот экран, на котором он сейчас
+    if (S.tab === "bar" && boot.presence) drawBar(boot.presence);
+    else if (S.tab === "menu" && boot.menu) { S.menu = boot.menu; drawMenuScreen(); }
+  }
   prefetch();
 })();
