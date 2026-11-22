@@ -48,6 +48,27 @@ async function api(action, params = {}) {
 }
 function fail(e) { view.innerHTML = empty("😕", h(e.message)); }
 
+// Кэш на телефоне: экран сразу рисуется из прошлых данных, свежие подтягиваются в фоне.
+const UID = (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || "x";
+const LS = {
+  get(k) { try { return JSON.parse(localStorage.getItem(`bar:${UID}:${k}`)); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(`bar:${UID}:${k}`, JSON.stringify(v)); } catch (e) {} },
+};
+S.tok = 0;
+/** Нарисовать из кэша (если есть), запросить свежее и перерисовать, если пользователь ещё на этом экране и данные изменились. */
+async function fresh(key, action, params, draw) {
+  const tok = ++S.tok, cached = LS.get(key);
+  if (cached) draw(cached, true); else loading();
+  try {
+    const d = await api(action, params);
+    LS.set(key, d);
+    if (tok === S.tok && JSON.stringify(d) !== JSON.stringify(cached)) draw(d, false);
+  } catch (e) {
+    if (tok !== S.tok) return;
+    if (!cached) fail(e); else toast("Не обновилось: " + e.message);
+  }
+}
+
 // ---------- навигация ----------
 function go(tab) {
   S.tab = tab; S.stack = [];
@@ -96,9 +117,10 @@ function donut(split) {
 
 async function renderHome() {
   setHead(firstName() ? `Привет, ${firstName()}` : "Главная", human(S.me.today));
-  loading();
-  let d;
-  try { d = await api("dashboard"); } catch (e) { return fail(e); }
+  if (S.booting) { const c = LS.get("dash"); if (c) drawHome(c); else loading(); return; }  // главную принесёт boot
+  fresh("dash", "dashboard", {}, drawHome);
+}
+function drawHome(d) {
   S.dash = d;
   let html = "";
 
@@ -136,7 +158,7 @@ async function renderHome() {
   }
 
   // неделя
-  if (d.week && d.week.me) {
+  if (d.week && d.week.me && S.me.can_hours) {
     const w = d.week, me = w.me;
     const total = me.hours.reduce((a, v) => a + (parseFloat(String(v).replace(",", ".")) || 0), 0);
     html += `<div class="card"><div class="row between"><h2 style="margin:0">Эта неделя</h2>
@@ -246,6 +268,16 @@ ACT.hoursDel = async ds => {
 function confirmBox(text) {
   return new Promise(res => { if (tg && tg.showConfirm) tg.showConfirm(text, ok => res(ok)); else res(confirm(text)); });
 }
+/** Время в 24-часовом формате: два списка (часы 00–23, минуты), без AM/PM из настроек телефона. */
+function timeSel(id, val) {
+  const [hh, mm] = String(val || "12:00").split(":").map(Number);
+  const p2 = n => String(n).padStart(2, "0");
+  const mins = [...new Set([...Array(12).keys()].map(i => i * 5).concat([mm || 0]))].sort((a, b) => a - b);
+  return `<div class="tsel"><select class="f" id="${id}H" aria-label="Часы">${[...Array(24).keys()].map(x => `<option ${x === hh ? "selected" : ""}>${p2(x)}</option>`).join("")}</select>
+    <span>:</span><select class="f" id="${id}M" aria-label="Минуты">${mins.map(x => `<option ${x === mm ? "selected" : ""}>${p2(x)}</option>`).join("")}</select></div>`;
+}
+function timeVal(id) { return `${$(`#${id}H`).value}:${$(`#${id}M`).value}`; }
+
 async function renderHoursForm() {
   setHead("Записать часы", S.me.tips_name);
   const roles = (S.dash && S.dash.week && S.dash.week.me && S.dash.week.me.roles) || [];
@@ -258,8 +290,8 @@ async function renderHoursForm() {
   const nx = S.dash && S.dash.next && S.dash.next.day === S.me.today ? S.dash.next : null;
   view.innerHTML = `<div class="card">
     <label class="l">День</label><select class="f" id="hDay">${opts.join("")}</select>
-    <div class="grid2"><div><label class="l">Пришёл</label><input class="f" id="hS" type="time" value="${nx ? nx.start : "12:00"}"></div>
-    <div><label class="l">Ушёл</label><input class="f" id="hE" type="time" value="${nx ? nx.end : "00:00"}"></div></div>
+    <div class="grid2"><div><label class="l">Пришёл</label>${timeSel("hS", nx ? nx.start : "12:00")}</div>
+    <div><label class="l">Ушёл</label>${timeSel("hE", nx ? nx.end : "00:00")}</div></div>
     ${roles.length ? `<label class="l">Роль</label><select class="f" id="hR"><option value="">Основная</option>${roles.map(r => `<option>${h(r)}</option>`).join("")}</select>` : ""}
     <div class="muted small" style="margin-top:8px">Смена после полуночи считается за день, когда начиналась.</div>
     <button class="btn" data-act="hoursSave">Записать</button></div>`;
@@ -267,7 +299,7 @@ async function renderHoursForm() {
 ACT.hoursSave = async (ds, el) => {
   el.disabled = true;
   try {
-    const r = await api("hours_save", { date: $("#hDay").value, start: $("#hS").value, end: $("#hE").value, role: $("#hR") ? $("#hR").value : "" });
+    const r = await api("hours_save", { date: $("#hDay").value, start: timeVal("hS"), end: timeVal("hE"), role: $("#hR") ? $("#hR").value : "" });
     try { tg && tg.HapticFeedback.notificationOccurred("success"); } catch (e) {}
     toast(`✅ ${hrs(r.hours)} ч → «${r.tab}»`);
     back();
@@ -277,11 +309,7 @@ ACT.hoursSave = async (ds, el) => {
 // ================= ГРАФИК: календарный месяц =================
 async function renderSchedule() {
   setHead("График", S.me.schedule_name || "");
-  loading();
-  let d;
-  try { d = await api("schedule", { offset: S.sched.offset }); } catch (e) { return fail(e); }
-  S.schedData = d;
-  drawSchedule();
+  fresh("sch" + S.sched.offset, "schedule", { offset: S.sched.offset }, d => { S.schedData = d; drawSchedule(); });
 }
 function drawSchedule() {
   const d = S.schedData, title = `${MONTHS[d.month - 1]} ${d.year}`;
@@ -468,8 +496,9 @@ ACT.stockMode = ds => { S.stockAll = ds.a === "1"; renderStock(); };
 // ================= МЕНЮ =================
 async function renderMenu() {
   setHead("Меню");
-  if (!S.menu) loading();
-  try { S.menu = S.menu || await api("menu"); } catch (e) { return fail(e); }
+  fresh("menu", "menu", {}, d => { S.menu = d; drawMenuScreen(); });
+}
+function drawMenuScreen() {
   const m = S.menu;
   let html = `<div class="seg"><button data-act="menuMode" data-m="bar" class="${S.menuMode === "bar" ? "on" : ""}">Бар</button>
     <button data-act="menuMode" data-m="kitchen" class="${S.menuMode === "kitchen" ? "on" : ""}">Кухня</button></div>`;
@@ -812,16 +841,52 @@ function closeGloss() { const sh = $("#sheet"); if (sh) sh.classList.remove("on"
 view.addEventListener("click", ev => { const a = ev.target.closest("[data-gi]"); if (a) { haptic(); openGloss(Number(a.dataset.gi)); } });
 
 // ---------- старт ----------
+function startUI() {
+  if (S.me.is_guest) {  // гость: только меню
+    $("#tabs").style.display = "none";
+    document.body.style.paddingBottom = "16px";
+    S.menuMode = "kitchen";
+    go("menu");
+    return;
+  }
+  $("#tabs").style.display = "";
+  const start = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || "home";
+  go(["home", "schedule", "menu", "more"].includes(start) ? start : "home");
+}
+
+/** Заранее подгружаем другие вкладки в кэш, чтобы они открывались мгновенно. */
+function prefetch() {
+  if (S.me.is_guest) return;
+  setTimeout(async () => {
+    for (const [key, action, params] of [["sch0", "schedule", { offset: 0 }], ["menu", "menu", {}]]) {
+      try { LS.set(key, await api(action, params)); } catch (e) {}
+    }
+  }, 300);
+}
+
 (async function init() {
+  const cachedMe = LS.get("me");
+  if (cachedMe) { S.me = cachedMe; S.booting = true; startUI(); }
+  let boot;
   try {
-    S.me = await api("me");
+    boot = await api("boot");
   } catch (e) {
+    S.booting = false;
+    if (cachedMe && e.status !== 403 && e.status !== 401) { toast("Не обновилось: " + e.message); if (S.tab === "home" && !S.stack.length) renderHome(); return; }
     $("#tabs").style.display = "none";
     setHead("Бар");
-    view.innerHTML = e.status === 403 ? empty("🔒", "Доступ ещё не одобрен.<br>Напиши боту /start — владелец получит заявку.")
+    view.innerHTML = e.status === 403 ? empty("🔒", h(e.message) + (/одобрен/.test(e.message) ? "<br>Напиши боту /start — владелец получит заявку." : ""))
       : empty("📱", h(e.message) + (tg && tg.initData ? "" : "<br><br>Открой приложение кнопкой в боте."));
     return;
   }
-  const start = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || "home";
-  go(["home", "schedule", "menu", "more"].includes(start) ? start : "home");
+  S.booting = false;
+  const roleChanged = !cachedMe || cachedMe.is_guest !== boot.me.is_guest;
+  S.me = boot.me;
+  LS.set("me", boot.me);
+  if (boot.dashboard) LS.set("dash", boot.dashboard);
+  if (boot.menu) LS.set("menu", boot.menu);
+  if (roleChanged) startUI();
+  else if (S.tab === "home" && !S.stack.length && boot.dashboard) drawHome(boot.dashboard);
+  else if (S.me.is_guest && boot.menu && !S.stack.length) { S.menu = boot.menu; drawMenuScreen(); }
+  prefetch();
 })();

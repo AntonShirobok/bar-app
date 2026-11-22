@@ -188,3 +188,5 @@ a.gl { color: var(--link); text-decoration: underline; text-decoration-style: do
   padding: 16px 16px calc(20px + env(safe-area-inset-bottom)); max-height: 70vh; overflow: auto; transform: translateY(100%); transition: transform .22s ease-out; }
 #sheet.on .sheet-card { transform: none; }
 .sheet-x { border: 0; background: var(--soft); color: var(--accent); width: 32px; height: 32px; border-radius: 50%; font-size: 15px; flex: none; }
+.tsel { display: flex; align-items: center; gap: 6px; }
+.tsel select { flex: 1; text-align: center; }
