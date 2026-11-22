@@ -10,7 +10,7 @@ const WD = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
 const MONTHS = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
 const MGEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
 
-const S = { me: null, tab: "schedule", tk: null, stack: [], sched: { offset: 0, mode: "mine", day: null },
+const S = { me: null, tab: "home", tk: null, stack: [], sched: { offset: 0, day: null }, menuMode: "bar",
             money: { offset: 0, week: 0 }, tkf: { sheet: 0, q: "", pf: false }, stockAll: false, alFilter: new Set() };
 
 // ---------- утилиты ----------
@@ -54,7 +54,7 @@ function go(tab) {
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
   backBtn();
   window.scrollTo(0, 0);
-  ({ schedule: renderSchedule, money: renderMoney, tk: renderTK, stock: renderStock, more: renderMore })[tab]();
+  ({ home: renderHome, schedule: renderSchedule, menu: renderMenu, more: renderMore })[tab]();
 }
 function push(fn) { S.stack.push(fn); backBtn(); window.scrollTo(0, 0); fn(); }
 function replaceTop(fn) { S.stack[S.stack.length - 1] = fn; fn(); }
@@ -73,118 +73,112 @@ view.addEventListener("click", e => {
 });
 const ACT = {};
 
-// ================= ГРАФИК =================
-async function renderSchedule() {
-  setHead("График", S.me.schedule_name || "");
+// ================= ГЛАВНАЯ =================
+function firstName() {
+  const n = (S.me.tg_name || "").trim().split(/\s+/)[0];
+  return n || "";
+}
+
+/** Кольцо «ставка / чаевые». Подписи с процентами и суммами рядом, чтобы читалось и без цвета. */
+function donut(split) {
+  const R = 34, C = 2 * Math.PI * R, a = C * split.base_pct / 100;
+  return `<div class="split">
+    <svg viewBox="0 0 88 88" width="88" height="88" role="img" aria-label="Ставка ${split.base_pct}%, чаевые ${split.tips_pct}%">
+      <circle cx="44" cy="44" r="${R}" fill="none" stroke="var(--c-tips)" stroke-width="12"/>
+      <circle cx="44" cy="44" r="${R}" fill="none" stroke="var(--c-base)" stroke-width="12"
+        stroke-dasharray="${a} ${C - a}" transform="rotate(-90 44 44)"/>
+    </svg>
+    <div class="legend">
+      <div><span class="dot" style="background:var(--c-base)"></span>${split.oklad ? "Оклад" : "Ставка"} <b>${split.base_pct}%</b><div class="muted small num">${money(split.base)}</div></div>
+      <div><span class="dot" style="background:var(--c-tips)"></span>Чаевые <b>${split.tips_pct}%</b><div class="muted small num">${money(split.tips)}</div></div>
+    </div></div>`;
+}
+
+async function renderHome() {
+  setHead(firstName() ? `Привет, ${firstName()}` : "Главная", human(S.me.today));
   loading();
   let d;
-  try { d = await api("schedule", { offset: S.sched.offset }); } catch (e) { return fail(e); }
-  S.schedData = d;
-  const title = `${MONTHS[d.month - 1]} ${d.year}`;
-  let html = `<div class="monthnav"><button data-act="schMonth" data-d="-1" ${S.sched.offset <= -2 ? "disabled" : ""}>‹</button>
-    <b>${title}</b><button data-act="schMonth" data-d="1" ${S.sched.offset >= 2 ? "disabled" : ""}>›</button></div>
-    <div class="seg"><button data-act="schMode" data-m="mine" class="${S.sched.mode === "mine" ? "on" : ""}">Мои смены</button>
-    <button data-act="schMode" data-m="all" class="${S.sched.mode === "all" ? "on" : ""}">Кто на смене</button></div>`;
-  if (!d.title) { view.innerHTML = html + empty("🗓", `В таблице графика нет листа «${title}»`); return; }
-  html += S.sched.mode === "mine" ? scheduleMine(d) : scheduleAll(d);
-  view.innerHTML = html;
-  const on = $(".day.on"); if (on) on.scrollIntoView({ inline: "center", block: "nearest" });
-}
-function scheduleMine(d) {
-  if (!d.me) return `<div class="card">${empty("🙋", "Не нашёл тебя в графике.")}<button class="btn" data-act="profile">Выбрать себя</button></div>`;
-  const today = d.today;
-  const sh = d.mine;
-  const total = sh.reduce((a, s) => a + (s.hours || 0), 0);
-  let html = `<div class="card"><div class="row between"><div><div class="big num">${sh.length}</div><div class="muted small">смен в месяце</div></div>
-    <div class="right"><div class="big num">${hrs(total)}</div><div class="muted small">часов по графику</div></div></div>
-    <button class="btn" data-act="calendar">📅 Добавить смены в календарь</button></div>`;
-  if (!sh.length) return html + `<div class="card">${empty("🌴", "В этом месяце смен нет")}</div>`;
-  const past = sh.filter(s => s.day < today);
-  const shown = S.sched.showPast ? sh : sh.filter(s => s.day >= today);
-  if (past.length) html += `<button class="btn ghost" style="margin:0 0 10px" data-act="schPast">${S.sched.showPast ? "Скрыть прошедшие" : `Показать прошедшие · ${past.length}`}</button>`;
-  if (!shown.length) return html + `<div class="card">${empty("✅", "Смены в этом месяце закончились")}</div>`;
-  html += `<div class="card" style="padding:0">`;
-  for (const s of shown) {
-    const x = dt(s.day);
-    const cls = s.day === today ? "today" : (s.day < today ? "past" : "");
-    const time = s.start ? `${s.start}–${s.end}` : h(s.text);
-    html += `<div class="shift ${cls}"><div class="d"><b>${x.getDate()}</b><small>${WD[x.getDay()]}</small></div>
-      <div class="grow"><div class="t num" style="font-weight:600">${time}${s.day === today ? ' <span class="tag">сегодня</span>' : ""}</div>
-      <div class="s small muted">${h(s.section)}${s.station ? ` · точка ${h(s.station)}` : ""}${s.hours ? ` · ${hrs(s.hours)} ч` : ""}</div></div></div>`;
-  }
-  return html + "</div>";
-}
-function scheduleAll(d) {
-  const days = new Date(d.year, d.month, 0).getDate();
-  const todayD = dt(d.today);
-  const isCur = todayD.getFullYear() === d.year && todayD.getMonth() + 1 === d.month;
-  if (!S.sched.day || S.sched.day > days) S.sched.day = isCur ? todayD.getDate() : 1;
-  const mineDays = new Set(d.mine.map(s => dt(s.day).getDate()));
-  let html = `<div class="days">`;
-  for (let i = 1; i <= days; i++) {
-    const x = new Date(d.year, d.month - 1, i);
-    const cls = [i === S.sched.day ? "on" : "", mineDays.has(i) ? "mine" : "", isCur && i === todayD.getDate() ? "today" : ""].join(" ");
-    html += `<button class="day ${cls}" data-act="schDay" data-i="${i}"><small>${WD[x.getDay()]}</small><b>${i}</b></button>`;
-  }
-  html += `</div>`;
-  const day = String(S.sched.day);
-  const groups = {};
-  for (const p of d.people) {
-    const v = p.shifts[day];
-    if (!v) continue;
-    (groups[p.section] = groups[p.section] || []).push([p.name === p.section ? "" : p.name, v, p.name === d.me]);
-  }
-  const iso = `${d.year}-${String(d.month).padStart(2, "0")}-${day.padStart(2, "0")}`;
-  html += `<div class="muted small" style="margin:0 4px 6px">${human(iso)}</div>`;
-  const keys = Object.keys(groups);
-  if (!keys.length) return html + `<div class="card">${empty("🫥", "Никого нет в графике")}</div>`;
-  for (const sec of keys) {
-    html += `<div class="card"><h2>${h(sec)}</h2><div class="list">`;
-    for (const [name, v, me] of groups[sec]) {
-      html += `<div class="item" ${me ? 'style="background:var(--soft)"' : ""}><div class="grow t">${h(name || v)}</div>
-        ${name ? `<div class="num muted">${h(v)}</div>` : ""}</div>`;
-    }
-    html += `</div></div>`;
-  }
-  return html;
-}
-ACT.schMonth = ds => { S.sched.offset += Number(ds.d); S.sched.day = null; renderSchedule(); };
-ACT.schPast = () => { S.sched.showPast = !S.sched.showPast; renderSchedule(); };
-ACT.schMode = ds => { S.sched.mode = ds.m; renderSchedule(); };
-ACT.schDay = ds => { S.sched.day = Number(ds.i); renderScheduleFromCache(); };
-function renderScheduleFromCache() {
-  const d = S.schedData;
-  const top = view.innerHTML.split('<div class="days">')[0];
-  view.innerHTML = top + scheduleAll(d);
-  const on = $(".day.on"); if (on) on.scrollIntoView({ inline: "center", block: "nearest" });
-}
-ACT.calendar = async (ds, el) => {
-  el.disabled = true;
-  try {
-    const c = await api("calendar");
-    if (tg) tg.openLink(c.page); else window.open(c.page);
-      } catch (e) { toast(e.message); }
-  el.disabled = false;
-};
-
-// ================= ДЕНЬГИ =================
-async function renderMoney() {
-  setHead("Деньги", S.me.tips_name || "");
-  if (!S.me.tips_name) {
-    view.innerHTML = `<div class="card">${empty("🙈", "Сначала выбери себя в таблице чаевых")}<button class="btn" data-act="profile">Выбрать себя</button></div>`;
-    return;
-  }
-  loading();
-  const [w, m] = await Promise.allSettled([api("week", { offset: S.money.week }), api("money", { offset: S.money.offset })]);
+  try { d = await api("dashboard"); } catch (e) { return fail(e); }
+  S.dash = d;
   let html = "";
-  html += m.status === "fulfilled" ? monthCard(m.value) : `<div class="card">${empty("😕", h(m.reason.message))}</div>`;
-  html += w.status === "fulfilled" ? weekCard(w.value) : `<div class="card"><h2>Неделя</h2>${empty("😕", h(w.reason.message))}
-      ${S.money.week ? '<button class="btn ghost" data-act="week" data-d="1">К текущей неделе</button>' : ""}</div>`;
+
+  // ближайшая смена
+  if (d.next) {
+    const isToday = d.next.day === d.today;
+    html += `<div class="card hero"><h2>${isToday ? "Сегодня смена" : "Ближайшая смена"}</h2>
+      <div class="row between"><div><div class="big">${isToday ? "Сегодня" : human(d.next.day)}</div>
+      <div class="num" style="font-size:18px;font-weight:600">${d.next.start}–${d.next.end}</div></div>
+      <div class="right muted small">${hrs(d.next.hours)} ч${d.next.station ? `<br>точка ${h(d.next.station)}` : ""}</div></div>
+      ${d.next.team.length ? `<div class="muted small" style="margin-top:10px">С тобой:</div><div class="chips wrap">${d.next.team.map(t => `<span class="chip">${h(t)}</span>`).join("")}</div>` : ""}
+      ${d.month_left !== undefined ? `<div class="muted small">В этом месяце ещё смен: <b>${d.month_left}</b> из ${d.month_shifts}</div>` : ""}</div>`;
+  } else if (S.me.schedule_name) {
+    html += `<div class="card">${empty("🌴", "Ближайших смен в графике нет")}</div>`;
+  } else {
+    html += `<div class="card">${empty("🙈", "Владелец ещё не связал тебя с графиком")}</div>`;
+  }
+
+  // деньги
+  if (d.month) {
+    const m = d.month;
+    html += `<div class="card"><div class="row between"><h2 style="margin:0">Деньги · ${h(m.title)}</h2>
+      <button class="btn sm ghost" data-act="moHistory">по месяцам ›</button></div>`;
+    if (m.row) {
+      html += `<div class="big num" style="margin:8px 0 2px">${money(m.row.total)}</div><div class="muted small">итого к выплате · ${hrs(m.row.hours)} ч</div>`;
+      if (m.split) html += donut(m.split);
+      if (m.row.deduct) html += `<div class="muted small">Вычет: −${money(m.row.deduct)}</div>`;
+    } else {
+      html += `<div class="row between" style="margin-top:8px"><div><div class="big num">${hrs(m.hours)} ч</div><div class="muted small">отработано ${h(m.source)}</div></div>
+        ${m.estimate ? `<div class="right"><div class="big num">≈${money(m.estimate)}</div><div class="muted small">по ставке, без чаевых</div></div>` : ""}</div>
+        <div class="muted small" style="margin-top:8px"><span class="tag warn">предварительно</span> Чаевые и итог появятся вместе с листом месяца.</div>`;
+      if (d.last && d.last.split) html += `<div class="sep"></div><div class="row between"><b>${h(d.last.title)}</b><span class="num">${money(d.last.row.total)}</span></div>${donut(d.last.split)}`;
+    }
+    html += `</div>`;
+  }
+
+  // неделя
+  if (d.week && d.week.me) {
+    const w = d.week, me = w.me;
+    const total = me.hours.reduce((a, v) => a + (parseFloat(String(v).replace(",", ".")) || 0), 0);
+    html += `<div class="card"><div class="row between"><h2 style="margin:0">Эта неделя</h2>
+      <button class="btn sm ghost" data-act="weekDetail">подробнее ›</button></div>
+      <div class="row between" style="margin:10px 0 6px"><div><div class="muted small">Тебе к выдаче</div><div class="big num">${h(me.pay || "—")}</div></div>
+      <div class="right"><div class="muted small">Часы · взял</div><div class="num" style="font-size:18px;font-weight:600">${hrs(total)} · ${h(me.took || "0")}</div></div></div>
+      <div class="weekbar">${w.days.map((x, i) => `<div class="${x.date === d.today ? "on" : ""}"><small>${WD[dt(x.date).getDay()]}</small><b>${h(me.hours[i] || "·")}</b></div>`).join("")}</div>
+      <button class="btn" data-act="hoursForm">＋ Записать часы</button></div>`;
+  } else if (!S.me.tips_name) {
+    html += `<div class="card muted small">Деньги появятся, когда владелец свяжет тебя с таблицей чаевых.</div>`;
+  }
+
+  // заготовки (бармены)
+  if (d.stock_to_make !== undefined) {
+    html += `<div class="card tapcard" data-act="openStock"><div class="row between"><div><h2 style="margin:0 0 2px">Заготовки</h2>
+      <div>${d.stock_to_make ? `Нужно сделать: <b>${d.stock_to_make}</b>` : "Всё есть ✅"}</div></div><span class="chev"></span></div></div>`;
+  }
+
+  // кто сегодня
+  if (d.today_team && d.today_team.length) {
+    const groups = {};
+    d.today_team.forEach(p => (groups[p.section] = groups[p.section] || []).push(p));
+    html += `<div class="card"><h2>Сегодня на смене</h2>${Object.entries(groups).map(([sec, ps]) => `<div class="muted small" style="margin-top:6px">${h(sec)}</div>
+      <div class="chips wrap">${ps.map(p => `<span class="chip ${p.me ? "on" : ""}">${h(p.name)} <span class="num">${p.start}</span></span>`).join("")}</div>`).join("")}</div>`;
+  }
+  if (d.errors && d.errors.length) html += `<div class="muted small" style="text-align:center">Не всё загрузилось: ${h(d.errors.join("; "))}</div>`;
   view.innerHTML = html;
+}
+ACT.openStock = () => push(renderStock);
+ACT.moHistory = () => push(renderMoneyHistory);
+ACT.weekDetail = () => push(renderWeekDetail);
+
+async function renderMoneyHistory() {
+  setHead("Деньги по месяцам", S.me.tips_name || "");
+  loading();
+  let m;
+  try { m = await api("money", { offset: S.money.offset }); } catch (e) { return fail(e); }
+  view.innerHTML = monthCard(m);
 }
 function monthCard(r) {
-  let html = `<div class="card"><div class="monthnav" style="margin-bottom:4px"><button data-act="moMonth" data-d="-1">‹</button>
-    <b>${h(r.title)}</b><button data-act="moMonth" data-d="1" ${S.money.offset >= 0 ? "disabled" : ""}>›</button></div>`;
+  let html = `<div class="monthnav"><button data-act="moMonth" data-d="-1">‹</button>
+    <b>${h(r.title)}</b><button data-act="moMonth" data-d="1" ${S.money.offset >= 0 ? "disabled" : ""}>›</button></div><div class="card">`;
   if (r.row) {
     const x = r.row;
     html += `<div class="stat"><span>Часы</span><b class="num">${hrs(x.hours)}</b></div>`;
@@ -194,10 +188,11 @@ function monthCard(r) {
     if (x.deduct) html += `<div class="stat"><span>Вычет</span><span class="num" style="color:var(--danger)">−${money(x.deduct)}</span></div>`;
     for (const e of r.extra) html += `<div class="stat small muted"><span>в т.ч. «${h(e.name)}»</span><span class="num">${hrs(e.hours)} ч${e.total ? " · " + money(e.total) : ""}</span></div>`;
     if (x.total !== null) html += `<div class="total"><span>Итого к выплате</span><span class="big num">${money(x.total)}</span></div>`;
+    const base = x.rate ? (x.rate >= 5000 ? x.rate : x.hours * x.rate) : 0, tips = x.tips || 0;
+    if (base + tips > 0) { const bp = Math.round(base / (base + tips) * 100); html += donut({ base, tips, base_pct: bp, tips_pct: 100 - bp, oklad: x.rate >= 5000 }); }
     html += `<div class="muted small" style="margin-top:6px">Из листа «${h(r.tab)}»</div>`;
   } else {
-    html += `<div class="stat"><span>Отработано пока</span><b class="num">${hrs(r.hours)} ч</b></div>
-      <div class="muted small">${h(r.source)}</div>`;
+    html += `<div class="stat"><span>Отработано пока</span><b class="num">${hrs(r.hours)} ч</b></div><div class="muted small">${h(r.source)}</div>`;
     if (r.rate_hint && r.rate_hint < 5000) html += `<div class="total"><span>По ставке ≈</span><span class="big num">${money(r.hours * r.rate_hint)}</span></div>
       <div class="muted small">${hrs(r.hours)} × ${money(r.rate_hint)}, без чаевых</div>`;
     else if (r.rate_hint) html += `<div class="stat"><span>Оклад</span><span class="num">${money(r.rate_hint)}</span></div>`;
@@ -205,22 +200,32 @@ function monthCard(r) {
   }
   return html + "</div>";
 }
+ACT.moMonth = ds => { S.money.offset = Math.min(0, S.money.offset + Number(ds.d)); renderMoneyHistory(); };
+
+async function renderWeekDetail() {
+  setHead("Неделя", S.me.tips_name || "");
+  loading();
+  let w;
+  try { w = await api("week", { offset: S.money.week }); } catch (e) {
+    view.innerHTML = `<div class="card">${empty("😕", h(e.message))}${S.money.week ? '<button class="btn ghost" data-act="week" data-d="1">К текущей неделе</button>' : ""}</div>`;
+    return;
+  }
+  view.innerHTML = weekCard(w);
+}
 function weekCard(w) {
-  const me = w.me;
-  const mon = dt(w.monday);
-  const end = new Date(mon); end.setDate(end.getDate() + 6);
-  let html = `<div class="card"><div class="row between"><h2 style="margin:0">Неделя ${mon.getDate()}.${String(mon.getMonth() + 1).padStart(2, "0")} – ${end.getDate()}.${String(end.getMonth() + 1).padStart(2, "0")}</h2>
-    <div class="btns" style="gap:4px">${S.money.week === 0 ? '<button class="btn sm ghost" data-act="week" data-d="-1">‹ прошлая</button>' : '<button class="btn sm ghost" data-act="week" data-d="1">текущая ›</button>'}</div></div>`;
+  const me = w.me, mon = dt(w.monday), end = new Date(mon); end.setDate(end.getDate() + 6);
+  const p2 = n => String(n).padStart(2, "0");
+  let html = `<div class="card"><div class="row between"><h2 style="margin:0">${mon.getDate()}.${p2(mon.getMonth() + 1)} – ${end.getDate()}.${p2(end.getMonth() + 1)}</h2>
+    ${S.money.week === 0 ? '<button class="btn sm ghost" data-act="week" data-d="-1">‹ прошлая</button>' : '<button class="btn sm ghost" data-act="week" data-d="1">текущая ›</button>'}</div>`;
   if (me) html += `<div class="row between" style="margin:10px 0 4px"><div><div class="muted small">Тебе к выдаче</div><div class="big num">${h(me.pay || "—")}</div></div>
     <div class="right"><div class="muted small">Взял</div><div class="num" style="font-size:18px;font-weight:600">${h(me.took || "—")}</div></div></div>`;
   else html += `<div class="muted small" style="margin:8px 0">Не нашёл «${h(w.tips_name)}» на листе «${h(w.tab)}».</div>`;
   html += `<table class="t" style="margin-top:6px"><tr><th>День</th><th class="r">Мои часы</th><th class="r">Бар</th><th class="r">Зал</th></tr>`;
   const today = S.me.today;
   w.days.forEach((d, i) => {
-    const mine = me ? me.hours[i] : "";
-    const sent = me && me.sent ? me.sent[i] : "";
+    const mine = me ? me.hours[i] : "", sent = me && me.sent ? me.sent[i] : "";
     const canDel = me && (mine || (sent && sent !== "нет")) && d.date <= today;
-    html += `<tr class="${d.date === today ? "hl" : ""}"><td>${human(d.date).split(",")[0]} ${dt(d.date).getDate()}</td>
+    html += `<tr class="${d.date === today ? "hl" : ""}"><td>${WD[dt(d.date).getDay()]} ${dt(d.date).getDate()}</td>
       <td class="r">${mine ? h(mine) : '<span class="muted">—</span>'}${sent && sent !== "нет" ? `<div class="muted small">${h(sent)}</div>` : ""}
       ${canDel ? `<div><a class="pf small" data-act="hoursDel" data-date="${d.date}">удалить</a></div>` : ""}</td>
       <td class="r">${h(d.bar || "—")}</td><td class="r">${h(d.hall || "—")}</td></tr>`;
@@ -229,14 +234,13 @@ function weekCard(w) {
   if (S.money.week === 0) html += `<button class="btn" data-act="hoursForm">＋ Записать часы</button>`;
   return html + "</div>";
 }
-ACT.moMonth = ds => { S.money.offset = Math.min(0, S.money.offset + Number(ds.d)); renderMoney(); };
-ACT.week = ds => { S.money.week = Math.min(0, S.money.week + Number(ds.d)); renderMoney(); };
+ACT.week = ds => { S.money.week = Math.min(0, S.money.week + Number(ds.d)); renderWeekDetail(); };
 ACT.hoursForm = () => push(renderHoursForm);
 ACT.hoursDel = async ds => {
   if (!(await confirmBox(`Удалить часы за ${human(ds.date)}?`))) return;
   try {
     const r = await api("hours_delete", { date: ds.date });
-    toast(`Удалил${r.old ? ` (было ${r.old} ч)` : ""}`); renderMoney();
+    toast(`Удалил${r.old ? ` (было ${r.old} ч)` : ""}`); renderWeekDetail();
   } catch (e) { toast(e.message); }
 };
 function confirmBox(text) {
@@ -244,37 +248,98 @@ function confirmBox(text) {
 }
 async function renderHoursForm() {
   setHead("Записать часы", S.me.tips_name);
-  let roles = [];
-  try { const w = await api("week"); roles = (w.me && w.me.roles) || []; } catch (e) {}
+  const roles = (S.dash && S.dash.week && S.dash.week.me && S.dash.week.me.roles) || [];
   const opts = [];
   for (let i = 0; i < 7; i++) {
     const d = dt(S.me.today); d.setDate(d.getDate() - i);
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     opts.push(`<option value="${iso}">${i === 0 ? "Сегодня, " : i === 1 ? "Вчера, " : ""}${human(iso)}</option>`);
   }
-  let sched = "";
-  try {
-    const mine = (S.schedData && S.schedData.mine) || [];
-    const s = mine.find(x => x.day === S.me.today && x.start);
-    if (s) sched = `<button class="btn ghost" data-act="asSched" data-s="${s.start}" data-e="${s.end}">Как в графике: ${s.start}–${s.end}</button>`;
-  } catch (e) {}
+  const nx = S.dash && S.dash.next && S.dash.next.day === S.me.today ? S.dash.next : null;
   view.innerHTML = `<div class="card">
     <label class="l">День</label><select class="f" id="hDay">${opts.join("")}</select>
-    <div class="grid2"><div><label class="l">Пришёл</label><input class="f" id="hS" type="time" value="12:00"></div>
-    <div><label class="l">Ушёл</label><input class="f" id="hE" type="time" value="00:00"></div></div>
+    <div class="grid2"><div><label class="l">Пришёл</label><input class="f" id="hS" type="time" value="${nx ? nx.start : "12:00"}"></div>
+    <div><label class="l">Ушёл</label><input class="f" id="hE" type="time" value="${nx ? nx.end : "00:00"}"></div></div>
     ${roles.length ? `<label class="l">Роль</label><select class="f" id="hR"><option value="">Основная</option>${roles.map(r => `<option>${h(r)}</option>`).join("")}</select>` : ""}
     <div class="muted small" style="margin-top:8px">Смена после полуночи считается за день, когда начиналась.</div>
-    ${sched}<button class="btn" data-act="hoursSave">Записать</button></div>`;
+    <button class="btn" data-act="hoursSave">Записать</button></div>`;
 }
-ACT.asSched = ds => { $("#hS").value = ds.s; $("#hE").value = ds.e; };
 ACT.hoursSave = async (ds, el) => {
   el.disabled = true;
   try {
     const r = await api("hours_save", { date: $("#hDay").value, start: $("#hS").value, end: $("#hE").value, role: $("#hR") ? $("#hR").value : "" });
-    tg && tg.HapticFeedback.notificationOccurred("success");
+    try { tg && tg.HapticFeedback.notificationOccurred("success"); } catch (e) {}
     toast(`✅ ${hrs(r.hours)} ч → «${r.tab}»`);
     back();
   } catch (e) { toast(e.message); el.disabled = false; }
+};
+
+// ================= ГРАФИК: календарный месяц =================
+async function renderSchedule() {
+  setHead("График", S.me.schedule_name || "");
+  loading();
+  let d;
+  try { d = await api("schedule", { offset: S.sched.offset }); } catch (e) { return fail(e); }
+  S.schedData = d;
+  drawSchedule();
+}
+function drawSchedule() {
+  const d = S.schedData, title = `${MONTHS[d.month - 1]} ${d.year}`;
+  let html = `<div class="monthnav"><button data-act="schMonth" data-d="-1" ${S.sched.offset <= -2 ? "disabled" : ""}>‹</button>
+    <b>${title}</b><button data-act="schMonth" data-d="1" ${S.sched.offset >= 2 ? "disabled" : ""}>›</button></div>`;
+  if (!d.title) { view.innerHTML = html + `<div class="card">${empty("🗓", `В таблице графика нет листа «${title}»`)}</div>`; return; }
+  const days = new Date(d.year, d.month, 0).getDate();
+  const todayD = dt(d.today), isCur = todayD.getFullYear() === d.year && todayD.getMonth() + 1 === d.month;
+  if (!S.sched.day || S.sched.day > days) S.sched.day = isCur ? todayD.getDate() : 1;
+  const mine = {};
+  d.mine.forEach(s => { const k = dt(s.day).getDate(); (mine[k] = mine[k] || []).push(s); });
+  const timed = d.mine.filter(s => s.start), total = timed.reduce((a, s) => a + (s.hours || 0), 0);
+  if (d.me) html += `<div class="row between small" style="margin:0 4px 8px"><span><b>${timed.length}</b> смен · <b>${hrs(total)}</b> ч</span>
+    <a class="pf" data-act="calendar">📅 В календарь телефона</a></div>`;
+  else html += `<div class="card muted small">Владелец ещё не связал тебя с графиком — ниже общий график.</div>`;
+  const lead = (new Date(d.year, d.month - 1, 1).getDay() + 6) % 7;
+  html += `<div class="cal"><div class="wd">Пн</div><div class="wd">Вт</div><div class="wd">Ср</div><div class="wd">Чт</div><div class="wd">Пт</div><div class="wd">Сб</div><div class="wd">Вс</div>`;
+  for (let i = 0; i < lead; i++) html += `<div></div>`;
+  for (let i = 1; i <= days; i++) {
+    const my = mine[i] || [], first = my.find(s => s.start) || my[0];
+    const cls = ["cd", my.length ? (first && first.start ? "mine" : "mark") : "", i === S.sched.day ? "sel" : "", isCur && i === todayD.getDate() ? "today" : "",
+      isCur && i < todayD.getDate() ? "past" : ""].join(" ");
+    html += `<button class="${cls}" data-act="schDay" data-i="${i}"><b>${i}</b><small>${first ? h(first.start || first.text) : ""}</small></button>`;
+  }
+  html += `</div>`;
+  html += `<div id="dayPanel">${dayPanel(d, S.sched.day, mine[S.sched.day] || [])}</div>`;
+  view.innerHTML = html;
+}
+function dayPanel(d, day, my) {
+  const iso = `${d.year}-${String(d.month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  let html = `<div class="card"><h3>${human(iso)}</h3>`;
+  if (my.length) html += my.map(s => `<div class="myshift"><b class="num">${s.start ? `${s.start}–${s.end}` : h(s.text)}</b>
+    <span class="muted small">${h(s.section)}${s.station ? ` · точка ${h(s.station)}` : ""}${s.hours ? ` · ${hrs(s.hours)} ч` : ""}</span></div>`).join("");
+  else if (d.me) html += `<div class="muted small" style="margin-bottom:6px">У тебя выходной</div>`;
+  const groups = {};
+  for (const p of d.people) {
+    const v = p.shifts[String(day)];
+    if (!v) continue;
+    (groups[p.section] = groups[p.section] || []).push([p.name === p.section ? "" : p.name, v, p.name === d.me]);
+  }
+  const keys = Object.keys(groups);
+  if (!keys.length) html += `<div class="muted small">Никого нет в графике</div>`;
+  for (const sec of keys) {
+    html += `<div class="muted small" style="margin-top:10px">${h(sec)}</div><div class="list">`;
+    for (const [name, v, me] of groups[sec]) html += `<div class="item${me ? " meitem" : ""}"><div class="grow">${h(name || v)}</div>${name ? `<div class="num muted small">${h(v)}</div>` : ""}</div>`;
+    html += `</div>`;
+  }
+  return html + `</div>`;
+}
+ACT.schMonth = ds => { S.sched.offset += Number(ds.d); S.sched.day = null; renderSchedule(); };
+ACT.schDay = ds => { S.sched.day = Number(ds.i); drawSchedule(); $("#dayPanel").scrollIntoView({ behavior: "smooth", block: "nearest" }); };
+ACT.calendar = async (ds, el) => {
+  el.style.pointerEvents = "none";
+  try {
+    const c = await api("calendar");
+    if (tg) tg.openLink(c.page); else window.open(c.page);
+  } catch (e) { toast(e.message); }
+  el.style.pointerEvents = "";
 };
 
 // ================= ТК =================
@@ -400,20 +465,67 @@ async function renderStock() {
 }
 ACT.stockMode = ds => { S.stockAll = ds.a === "1"; renderStock(); };
 
+// ================= МЕНЮ =================
+async function renderMenu() {
+  setHead("Меню");
+  if (!S.menu) loading();
+  try { S.menu = S.menu || await api("menu"); } catch (e) { return fail(e); }
+  const m = S.menu;
+  let html = `<div class="seg"><button data-act="menuMode" data-m="bar" class="${S.menuMode === "bar" ? "on" : ""}">Бар</button>
+    <button data-act="menuMode" data-m="kitchen" class="${S.menuMode === "kitchen" ? "on" : ""}">Кухня</button></div>`;
+  if (S.menuMode === "kitchen" && !m.kitchen.configured) {
+    view.innerHTML = html + `<div class="card">${empty("🍽", "Меню кухни скоро появится:<br>подключаем таблицу с фотографиями, составом и аллергенами.")}</div>`;
+    return;
+  }
+  html += `<input class="search" id="mq" placeholder="Поиск по названию или составу" value="${h(S.menuQ || "")}"><div id="menuList"></div>`;
+  view.innerHTML = html;
+  $("#mq").addEventListener("input", e => { S.menuQ = e.target.value; drawMenu(); });
+  drawMenu();
+}
+function drawMenu() {
+  const m = S.menu, q = norm(S.menuQ || "");
+  const items = (S.menuMode === "kitchen" ? m.kitchen.items : m.bar).filter(i => !q || norm(i.name + " " + i.composition).includes(q));
+  const box = $("#menuList");
+  if (!items.length) { box.innerHTML = `<div class="card">${empty("🔍", "Ничего не нашёл")}</div>`; return; }
+  const groups = {};
+  items.forEach(i => (groups[i.section || "Меню"] = groups[i.section || "Меню"] || []).push(i));
+  box.innerHTML = Object.entries(groups).map(([g, list]) => `<div class="card"><h2>${h(g)}</h2>${list.map(i => `
+    <div class="dish">${i.photo ? `<img src="${h(i.photo)}" alt="" loading="lazy">` : ""}
+      <div class="grow"><div class="t">${h(i.name)} ${i.new ? '<span class="tag ok">NEW</span>' : ""}</div>
+      ${i.description ? `<div class="small">${h(i.description)}</div>` : ""}
+      <div class="s">${h(i.composition)}</div>
+      ${i.allergens.length ? `<div class="tags">${i.allergens.map(a => `<span class="tag bad">${h(m.titles[a])}</span>`).join(" ")}${i.checked ? "" : ' <span class="muted small">не проверено</span>'}</div>` : ""}
+    </div></div>`).join("")}</div>`).join("");
+}
+ACT.menuMode = ds => { S.menuMode = ds.m; renderMenu(); };
+
 // ================= ЕЩЁ =================
 function renderMore() {
   setHead("Ещё");
-  view.innerHTML = `<div class="card" style="padding:0"><div class="list" style="margin:0">
-    <div class="item tap chev" data-act="open" data-s="allergens"><span style="font-size:22px">🥜</span><div class="grow"><div class="t">Аллергены</div><div class="s">Составы и фильтр «без…»</div></div></div>
-    <div class="item tap chev" data-act="open" data-s="guest"><span style="font-size:22px">🎪</span><div class="grow"><div class="t">Гостевая смена</div><div class="s">Заказ, сообщение и таблица</div></div></div>
-    <div class="item tap chev" data-act="profile"><span style="font-size:22px">🙋</span><div class="grow"><div class="t">Профиль</div><div class="s">${h(S.me.schedule_name || "кто я в графике и в таблице чаевых")}</div></div></div>
-    ${S.me.is_owner ? `<div class="item tap chev" data-act="open" data-s="admin"><span style="font-size:22px">🔐</span><div class="grow"><div class="t">Админ</div><div class="s">Доступ, зарплаты, Нетмонет</div></div></div>` : ""}
-  </div></div>
-  <div class="muted small" style="text-align:center;margin-top:14px">Данные из Google Таблиц обновляются раз в 10 минут, график — тоже</div>`;
+  const row = (act, s, icon, t, sub) => `<div class="item tap chev" data-act="${act}" ${s ? `data-s="${s}"` : ""}><span style="font-size:22px">${icon}</span><div class="grow"><div class="t">${t}</div><div class="s">${sub}</div></div></div>`;
+  let html = "";
+  if (S.me.can_bar) html += `<div class="card" style="padding:0"><h2 style="padding:12px 14px 0">Бар</h2><div class="list" style="margin:0">
+    ${row("open", "tk", "🍸", "Тех. карты", "Поиск, ПФ, калькулятор батча")}
+    ${row("open", "stock", "🧪", "Заготовки", "Что нужно сделать по стоку")}
+    ${row("open", "guest", "🎪", "Гостевая смена", "Заказ, сообщение и Excel")}</div></div>`;
+  html += `<div class="card" style="padding:0"><div class="list" style="margin:0">
+    ${row("open", "allergens", "🥜", "Аллергены", "Составы и фильтр «без…»")}
+    ${row("open", "profile", "🙋", "Профиль", h(S.me.role || "роль не назначена"))}
+    ${S.me.is_owner ? row("open", "admin", "🔐", "Админ", "Сотрудники, роли, зарплаты, Нетмонет") : ""}</div></div>
+    <div class="muted small" style="text-align:center;margin-top:14px">Данные из Google Таблиц обновляются раз в 10 минут</div>`;
+  view.innerHTML = html;
 }
-ACT.open = ds => push({ allergens: renderAllergens, guest: renderGuest, admin: renderAdmin }[ds.s]);
-ACT.profile = () => push(renderProfile);
+ACT.open = ds => push({ tk: renderTK, stock: renderStock, allergens: renderAllergens, guest: renderGuest, admin: renderAdmin, profile: renderProfile }[ds.s]);
 
+function renderProfile() {
+  setHead("Профиль");
+  view.innerHTML = `<div class="card">
+    <div class="stat"><span>Роль</span><b>${h(S.me.role || "не назначена")}</b></div>
+    <div class="stat"><span>В графике</span><span>${h(S.me.schedule_name || "—")}</span></div>
+    <div class="stat"><span>В таблице чаевых</span><span>${h(S.me.tips_name || "—")}</span></div>
+    <div class="muted small" style="margin-top:10px">Роль и имена назначает владелец. Если что-то не так — напиши ему.</div></div>
+    <div class="muted small" style="text-align:center">Telegram: ${h(S.me.tg_name)} · ID ${S.me.id}</div>`;
+}
 // ---------- аллергены ----------
 async function renderAllergens() {
   setHead("Аллергены");
@@ -503,35 +615,6 @@ ACT.gPick = async ds => {
   back();
 };
 
-// ---------- профиль ----------
-async function renderProfile() {
-  setHead("Профиль");
-  loading();
-  let p;
-  try { p = await api("people"); } catch (e) { return fail(e); }
-  const secs = {};
-  for (const x of p.schedule) (secs[x.section] = secs[x.section] || []).push(x.name);
-  view.innerHTML = `<div class="card"><h2>Кто я в графике</h2>
-    <select class="f" id="pS"><option value="">— не выбрано —</option>${Object.entries(secs).map(([s, ns]) => `<optgroup label="${h(s)}">${ns.map(n => `<option ${n === S.me.schedule_name ? "selected" : ""}>${h(n)}</option>`).join("")}</optgroup>`).join("")}</select>
-    <div class="muted small" style="margin-top:6px">По этому имени — «Мои смены» и календарь.</div></div>
-    <div class="card"><h2>Кто я в таблице чаевых</h2>
-    <select class="f" id="pT"><option value="">— не выбрано —</option>${p.tips.map(n => `<option ${n === S.me.tips_name ? "selected" : ""}>${h(n)}</option>`).join("")}</select>
-    <div class="muted small" style="margin-top:6px">По этому имени — часы, чаевые и зарплата. Видишь только свои.</div>
-    ${p.tips.length ? "" : '<div class="small" style="color:var(--danger);margin-top:6px">Таблица чаевых сейчас недоступна</div>'}</div>
-    <button class="btn" data-act="pSave">Сохранить</button>
-    <div class="muted small" style="text-align:center;margin-top:12px">Telegram: ${h(S.me.tg_name)} · ID ${S.me.id}</div>`;
-}
-ACT.pSave = async (ds, el) => {
-  el.disabled = true;
-  const body = { schedule_name: $("#pS").value };
-  if ($("#pT").value) body.tips_name = $("#pT").value;
-  try {
-    await api("profile", body);
-    S.me = await api("me");
-    toast("Сохранил"); back();
-  } catch (e) { toast(e.message); el.disabled = false; }
-};
-
 // ---------- админ ----------
 async function renderAdmin() {
   setHead("Админ");
@@ -541,13 +624,12 @@ async function renderAdmin() {
   const pend = a.users.filter(u => u.status === "pending");
   const ok = a.users.filter(u => u.status === "approved");
   const rej = a.users.filter(u => u.status === "rejected");
-  const row = u => `<div class="item"><div class="grow"><div class="t">${h(u.name || "Без имени")} ${u.username ? `<span class="muted small">@${h(u.username)}</span>` : ""}</div>
-    <div class="s">${h([u.schedule_name, u.tips_name].filter(Boolean).join(" · ") || "имя в таблицах не выбрано")}</div></div>
-    ${u.owner ? '<span class="tag">владелец</span>' : u.status === "approved" ? `<button class="btn sm danger" data-act="aUser" data-id="${u.id}" data-ok="0">Закрыть</button>`
-      : `<div class="btns" style="gap:4px"><button class="btn sm" data-act="aUser" data-id="${u.id}" data-ok="1">Пустить</button>${u.status === "pending" ? `<button class="btn sm danger" data-act="aUser" data-id="${u.id}" data-ok="0">✕</button>` : ""}</div>`}</div>`;
+  const row = u => `<div class="item tap" data-act="aEdit" data-id="${u.id}"><div class="grow"><div class="t">${h(u.name || "Без имени")} ${u.username ? `<span class="muted small">@${h(u.username)}</span>` : ""}</div>
+    <div class="s">${u.role ? `<span class="tag">${h(u.role)}</span> ` : '<span class="tag warn">без роли</span> '}${h([u.schedule_name, u.tips_name].filter(Boolean).join(" · ") || "не связан с таблицами")}</div></div>
+    ${u.owner ? '<span class="tag">владелец</span>' : u.status === "pending" ? `<button class="btn sm" data-act="aUser" data-id="${u.id}" data-ok="1">Пустить</button>` : '<span class="chev"></span>'}</div>`;
   let html = "";
   if (pend.length) html += `<div class="card"><h2>Заявки · ${pend.length}</h2><div class="list">${pend.map(row).join("")}</div></div>`;
-  html += `<div class="card"><h2>Есть доступ · ${ok.length}</h2><div class="list">${ok.map(row).join("") || '<div class="item muted">Пока никого</div>'}</div></div>`;
+  html += `<div class="card"><h2>Сотрудники · ${ok.length}</h2><div class="muted small" style="margin-bottom:6px">Нажми на человека, чтобы назначить роль и имена в таблицах.</div><div class="list">${ok.map(row).join("") || '<div class="item muted">Пока никого</div>'}</div></div>`;
   if (rej.length) html += `<div class="card"><h2>Отклонены</h2><div class="list">${rej.map(row).join("")}</div></div>`;
   html += `<div class="card"><h2>Чаевые и зарплаты</h2>
     <div class="list"><div class="item tap chev" data-act="aOpen" data-s="tips"><div class="t">Неделя: к выдаче по всем</div></div>
@@ -562,9 +644,50 @@ async function renderAdmin() {
   view.innerHTML = html;
   $("#aWeek").addEventListener("change", async e => { try { await api("admin_week", { tab: e.target.value }); toast("Лист недели изменён"); } catch (er) { toast(er.message); } });
 }
-ACT.aUser = async ds => {
-  try { await api("admin_user", { id: Number(ds.id), ok: ds.ok === "1" }); toast(ds.ok === "1" ? "Доступ открыт" : "Доступ закрыт"); renderAdmin(); }
-  catch (e) { toast(e.message); }
+ACT.aUser = async (ds, el, e) => {
+  if (e) e.stopPropagation();
+  try {
+    await api("admin_user", { id: Number(ds.id), ok: ds.ok === "1" });
+    toast(ds.ok === "1" ? "Доступ открыт" : "Доступ закрыт");
+    S.stack[S.stack.length - 1]();
+  } catch (er) { toast(er.message); }
+};
+ACT.aEdit = (ds, el, e) => { if (e.target.closest("button")) return; push(() => renderAdminUser(Number(ds.id))); };
+
+/** Экран сотрудника: доступ, роль, имя в графике и в таблице чаевых. Подсказки — по графику. */
+async function renderAdminUser(id) {
+  setHead("Сотрудник"); loading();
+  let p;
+  try { p = await api("admin_people", { id }); } catch (e) { return fail(e); }
+  const u = p.user, sg = p.suggest;
+  const secs = {};
+  p.schedule.forEach(x => (secs[x.section] = secs[x.section] || []).push(x.name));
+  const sn = u.schedule_name || sg.schedule_name || "", tn = u.tips_name || sg.tips_name || "", rl = u.role || sg.role || "";
+  const hint = (cur, sug) => !cur && sug ? ' <span class="tag warn">подсказка</span>' : "";
+  const status = u.owner ? "владелец" : ({ approved: "есть доступ", pending: "ждёт одобрения", rejected: "доступ закрыт" }[u.status] || "—");
+  view.innerHTML = `<div class="card"><h3>${h(u.name || "Без имени")}</h3>
+    <div class="muted small">${u.username ? "@" + h(u.username) + " · " : ""}ID ${u.id} · ${status}</div>
+    ${u.owner ? "" : `<div class="btns" style="margin-top:8px">${u.status === "approved"
+      ? `<button class="btn danger" data-act="aUser" data-id="${u.id}" data-ok="0">Закрыть доступ</button>`
+      : `<button class="btn" data-act="aUser" data-id="${u.id}" data-ok="1">Пустить</button>`}</div>`}</div>
+    <div class="card">
+      <label class="l" style="margin-top:0">Роль${hint(u.role, sg.role)}</label>
+      <select class="f" id="uRole"><option value="">— не назначена —</option>${p.roles.map(r => `<option ${r === rl ? "selected" : ""}>${h(r)}</option>`).join("")}</select>
+      <div class="muted small" style="margin-top:4px">ТК, заготовки и гостевые смены видят бармены и администраторы.</div>
+      <label class="l">Кто в графике${hint(u.schedule_name, sg.schedule_name)}</label>
+      <select class="f" id="uSched"><option value="">— не связан —</option>${Object.entries(secs).map(([s, ns]) => `<optgroup label="${h(s)}">${ns.map(n => `<option ${n === sn ? "selected" : ""}>${h(n)}</option>`).join("")}</optgroup>`).join("")}</select>
+      <label class="l">Кто в таблице чаевых${hint(u.tips_name, sg.tips_name)}</label>
+      <select class="f" id="uTips"><option value="">— не связан —</option>${p.tips.map(n => `<option ${n === tn ? "selected" : ""}>${h(n)}</option>`).join("")}</select>
+      ${p.tips.length ? "" : '<div class="small" style="color:var(--danger);margin-top:4px">Таблица чаевых сейчас недоступна</div>'}
+      <button class="btn" data-act="aSaveUser" data-id="${u.id}">Сохранить</button></div>`;
+}
+ACT.aSaveUser = async (ds, el) => {
+  el.disabled = true;
+  try {
+    await api("admin_user_update", { id: Number(ds.id), role: $("#uRole").value, schedule_name: $("#uSched").value, tips_name: $("#uTips").value });
+    if (Number(ds.id) === S.me.id) S.me = await api("me");
+    toast("Сохранил"); back();
+  } catch (e) { toast(e.message); el.disabled = false; }
 };
 ACT.aNm = async (ds, el) => {
   const v = $("#aNm").value; if (!v) return;
@@ -607,6 +730,6 @@ ACT.aSal = ds => replaceTop(() => renderAdminSalary(Number(ds.o)));
       : empty("📱", h(e.message) + (tg && tg.initData ? "" : "<br><br>Открой приложение кнопкой в боте."));
     return;
   }
-  const start = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || "schedule";
-  go(["schedule", "money", "tk", "stock", "more"].includes(start) ? start : "schedule");
+  const start = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || "home";
+  go(["home", "schedule", "menu", "more"].includes(start) ? start : "home");
 })();
