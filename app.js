@@ -496,7 +496,7 @@ ACT.stockMode = ds => { S.stockAll = ds.a === "1"; renderStock(); };
 // ================= МЕНЮ =================
 async function renderMenu() {
   setHead("Меню");
-  fresh("menu", "menu", {}, d => { S.menu = d; drawMenuScreen(); });
+  fresh("menu", "menu", {}, d => { S.menu = d; preloadPhotos(d); drawMenuScreen(); });
 }
 function drawMenuScreen() {
   const m = S.menu;
@@ -531,7 +531,7 @@ function drawMenu() {
   items.forEach(i => (groups[i.section || "Меню"] = groups[i.section || "Меню"] || []).push(i));
   const order = Object.entries(groups).sort((x, y) => (/соус/i.test(x[0]) ? 1 : 0) - (/соус/i.test(y[0]) ? 1 : 0));
   box.innerHTML = order.map(([g, list]) => { const anyPhoto = list.some(i => i.photo); return `<div class="card"><h2>${h(g)} · ${list.length}</h2>${list.map(i => `
-    <div class="dish ${kitchen ? "tap" : ""}" ${kitchen ? `data-act="dish" data-k="${h(i.section + "|" + i.name)}"` : ""}>${i.photo ? `<img src="${h(i.photo)}" alt="" loading="lazy">` : (kitchen && anyPhoto ? '<div class="nophoto">🍽</div>' : "")}
+    <div class="dish ${kitchen ? "tap" : ""}" ${kitchen ? `data-act="dish" data-k="${h(i.section + "|" + i.name)}"` : ""}>${i.photo ? `<img src="${h(photoSrc(i.photo, 240))}" alt="" width="76" height="76" decoding="async">` : (kitchen && anyPhoto ? '<div class="nophoto">🍽</div>' : "")}
       <div class="grow"><div class="row between" style="align-items:flex-start"><div class="t">${h(i.name)} ${i.new ? '<span class="tag ok">NEW</span>' : ""}</div>
       ${i.price ? `<b class="num" style="white-space:nowrap">${money(i.price)}</b>` : ""}</div>
       ${i.weight ? `<div class="muted small">${h(i.weight)}</div>` : ""}
@@ -547,7 +547,7 @@ function renderDish(k) {
   if (!i) { view.innerHTML = empty("😕", "Блюдо пропало из меню"); return; }
   setHead(i.name, i.section);
   const row = (t, v) => v ? `<div class="stat"><span>${t}</span><span class="right">${h(v)}</span></div>` : "";
-  view.innerHTML = `${i.photo ? `<img class="hero-photo" src="${h(i.photo.replace("sz=w800", "sz=w1200"))}" alt="${h(i.name)}">` : ""}
+  view.innerHTML = `${i.photo ? `<img class="hero-photo" src="${h(photoSrc(i.photo, 1000))}" alt="${h(i.name)}">` : ""}
     <div class="card"><div class="row between" style="align-items:flex-start"><h3>${h(i.name)}</h3>${i.price ? `<b class="num" style="font-size:18px">${money(i.price)}</b>` : ""}</div>
       ${i.description ? `<div style="margin-top:6px">${h(i.description)}</div>` : ""}
       ${alTags(i)}${Object.keys(i.allergens_via || {}).length ? '<div class="muted small" style="margin-top:4px">' + Object.entries(i.allergens_via).map(([c, n]) => h(S.menu.titles[c]) + ' — из «' + h(n.join('», «')) + '»').join('; ') + '</div>' : ''}</div>
@@ -675,88 +675,90 @@ ACT.gPick = async ds => {
 };
 
 // ---------- админ ----------
-// Админка: вкладки «Люди / Деньги / Данные». Открывается из сохранённых данных, свежие подтягиваются в фоне.
-S.adminTab = S.adminTab || "people";
+// Админка: стартовый экран — плитки-разделы, внутри — список людей. Открывается из сохранённых данных.
+const ADMIN_CATS = {
+  new: { icon: "👋", title: "Новые", hint: "Гости, которых ты ещё не разобрал", test: u => !u.owner && u.status !== "rejected" && (u.new || u.status === "pending") },
+  staff: { icon: "🧑‍🍳", title: "Сотрудники", hint: "Все, у кого роль не «гость»", test: u => u.status === "approved" && (u.owner || (u.role && u.role !== "гость")) },
+  guests: { icon: "🍽", title: "Гости", hint: "Видят только меню", test: u => !u.owner && u.status === "approved" && (!u.role || u.role === "гость") },
+  closed: { icon: "🚫", title: "Доступ закрыт", hint: "Бот им ничего не показывает", test: u => u.status === "rejected" },
+};
 async function renderAdmin() {
   setHead("Админ");
-  fresh("adm", "admin_overview", {}, d => { S.adm = d; drawAdmin(); });
+  fresh("adm", "admin_overview", {}, d => { S.adm = d; drawAdminHome(); });
+}
+function drawAdminHome() {
+  const a = S.adm, n = c => a.users.filter(ADMIN_CATS[c].test).length;
+  const t = (act, key, icon, title, sub, warn) => `<div class="tile" data-act="${act}" data-c="${key}">
+    <div class="ticon">${icon}</div><div class="t">${title}</div><div class="muted small">${sub}</div>${warn ? '<span class="dotwarn"></span>' : ""}</div>`;
+  view.innerHTML = `<div class="tiles">
+    ${t("aCat", "new", ADMIN_CATS.new.icon, "Новые", n("new") ? `<b>${n("new")}</b> ждут` : "никого", n("new") > 0)}
+    ${t("aCat", "staff", ADMIN_CATS.staff.icon, "Сотрудники", `${n("staff")} чел.`)}
+    ${t("aCat", "guests", ADMIN_CATS.guests.icon, "Гости", `${n("guests")} чел.`)}
+    ${t("aCat", "closed", ADMIN_CATS.closed.icon, "Доступ закрыт", `${n("closed")} чел.`)}
+    ${t("aSec", "money", "💰", "Деньги", "Выплаты, зарплаты, Нетмонет")}
+    ${t("aSec", "data", "⚙️", "Данные", a.bot_online ? "бот на связи" : "бот не на связи", !a.bot_online)}
+  </div>`;
+}
+ACT.aCat = ds => push(() => renderAdminList(ds.c));
+ACT.aSec = ds => push(ds.c === "money" ? renderAdminMoney : renderAdminData);
+
+function renderAdminList(cat) {
+  const c = ADMIN_CATS[cat];
+  setHead(c.title, c.hint);
+  const draw = () => {
+    const list = S.adm.users.filter(c.test);
+    if (!list.length) { view.innerHTML = `<div class="card">${empty(c.icon, "Здесь пока никого")}</div>`; return; }
+    view.innerHTML = `<div class="card" style="padding:0"><div class="list" style="margin:0">${list.map(u => {
+      const tag = u.owner ? '<span class="tag">владелец</span>' : u.status === "rejected" ? '<span class="tag bad">закрыт</span>'
+        : `<span class="tag">${h(u.role || "гость")}</span>`;
+      const linked = h([u.schedule_name, u.tips_name].filter(Boolean).join(" · ") || "не связан с таблицами");
+      return `<div class="item tap" data-act="aEdit" data-id="${u.id}"><div class="ava">${h(initials(u.name))}</div>
+        <div class="grow"><div class="t">${h(u.name || "Без имени")} ${u.username ? `<span class="muted small">@${h(u.username)}</span>` : ""}</div>
+        <div class="s">${tag} ${linked}</div></div><span class="chev"></span></div>`;
+    }).join("")}</div></div><div class="muted small" style="text-align:center">Нажми на человека, чтобы назначить роль и имена в таблицах.</div>`;
+  };
+  if (S.adm) draw();
+  fresh("adm", "admin_overview", {}, d => { S.adm = d; draw(); });
 }
 function initials(name) {
   const p = String(name || "?").trim().split(/\s+/);
   return ((p[0] || "?")[0] + (p[1] ? p[1][0] : "")).toUpperCase();
 }
-function drawAdmin() {
-  const a = S.adm, pend = a.users.filter(u => u.status === "pending");
-  const tab = (id, t, badge) => `<button data-act="aTab" data-t="${id}" class="${S.adminTab === id ? "on" : ""}">${t}${badge ? ` <span class="badge">${badge}</span>` : ""}</button>`;
-  let html = `<div class="seg">${tab("people", "Люди", pend.length)}${tab("money", "Деньги")}${tab("data", "Данные")}</div>`;
-  if (S.adminTab === "people") html += adminPeople(a);
-  else if (S.adminTab === "money") html += adminMoney(a);
-  else html += adminData(a);
-  view.innerHTML = html;
-  const w = $("#aWeek");
-  if (w) w.addEventListener("change", async e => { try { await api("admin_week", { tab: e.target.value }); toast("Лист недели изменён"); } catch (er) { toast(er.message); } });
-}
-function tile(u) {
-  const status = u.owner ? '<span class="tag">владелец</span>'
-    : u.status === "rejected" ? '<span class="tag bad">закрыт</span>'
-    : u.role ? `<span class="tag">${h(u.role)}</span>` : '<span class="tag warn">без роли</span>';
-  const linked = u.schedule_name || u.tips_name ? "" : '<div class="muted small">не связан с таблицами</div>';
-  const quick = u.status === "pending" ? `<div class="btns" style="margin-top:8px;gap:6px">
-      <button class="btn sm" data-act="aUser" data-id="${u.id}" data-ok="1">Пустить</button>
-      <button class="btn sm danger" data-act="aUser" data-id="${u.id}" data-ok="0">✕</button></div>` : "";
-  return `<div class="tile ${u.status === "pending" ? "pending" : ""}" data-act="aEdit" data-id="${u.id}">
-    <div class="ava">${h(initials(u.name))}</div>
-    <div class="t">${h(u.name || "Без имени")}</div>
-    ${u.username ? `<div class="muted small">@${h(u.username)}</div>` : ""}
-    <div style="margin-top:4px">${status}</div>${linked}${quick}</div>`;
-}
-function adminPeople(a) {
-  const pend = a.users.filter(u => u.status === "pending");
-  const ok = a.users.filter(u => u.status === "approved");
-  const rej = a.users.filter(u => u.status === "rejected");
-  let html = "";
-  if (pend.length) html += `<h2 class="sect">Заявки · ${pend.length}</h2><div class="tiles">${pend.map(tile).join("")}</div>`;
-  const byRole = {};
-  ok.forEach(u => { const r = u.owner ? "владелец" : (u.role || "без роли"); (byRole[r] = byRole[r] || []).push(u); });
-  const order = ["владелец", "администратор", "бармен", "официант", "хостес", "раннер", "кухня", "клининг", "гость", "без роли"];
-  Object.keys(byRole).sort((x, y) => order.indexOf(x) - order.indexOf(y)).forEach(r => {
-    html += `<h2 class="sect">${h(r[0].toUpperCase() + r.slice(1))} · ${byRole[r].length}</h2><div class="tiles">${byRole[r].map(tile).join("")}</div>`;
-  });
-  if (rej.length) html += `<h2 class="sect">Доступ закрыт · ${rej.length}</h2><div class="tiles">${rej.map(tile).join("")}</div>`;
-  if (!a.users.length) html += `<div class="card">${empty("👥", "Пока никого")}</div>`;
-  return html + `<div class="muted small" style="text-align:center;margin-top:8px">Нажми на плитку, чтобы назначить роль и имена в таблицах.</div>`;
-}
-function adminMoney(a) {
-  return `<div class="card" style="padding:0"><div class="list" style="margin:0">
+function renderAdminMoney() {
+  setHead("Деньги");
+  const a = S.adm;
+  view.innerHTML = `<div class="card" style="padding:0"><div class="list" style="margin:0">
     <div class="item tap chev" data-act="aOpen" data-s="tips"><div class="t">Неделя: к выдаче по всем</div></div>
     <div class="item tap chev" data-act="aOpen" data-s="salary"><div class="t">Зарплата всех за месяц</div></div></div></div>
     <div class="card"><label class="l" style="margin-top:0">Нетмонет за эту неделю</label>
     <div class="row"><input class="f num" id="aNm" type="number" inputmode="decimal" placeholder="9080"><button class="btn sm" data-act="aNm">Записать</button></div>
     <label class="l">Неделя с ${h(a.week.monday)} пишется в лист</label>
     <select class="f" id="aWeek">${a.week.tabs.map(t => `<option ${t === a.week.tab ? "selected" : ""}>${h(t)}</option>`).join("") || `<option>${h(a.week.tab)}</option>`}</select></div>`;
+  $("#aWeek").addEventListener("change", async e => { try { await api("admin_week", { tab: e.target.value }); toast("Лист недели изменён"); } catch (er) { toast(er.message); } });
 }
-function adminData(a) {
-  return `<div class="card"><button class="btn ghost" data-act="aRefresh">🔄 Перечитать таблицы сейчас</button>
+function renderAdminData() {
+  setHead("Данные");
+  const a = S.adm;
+  view.innerHTML = `<div class="card"><button class="btn ghost" data-act="aRefresh">🔄 Перечитать таблицы сейчас</button>
     <button class="btn ghost" data-act="aAllergen">🧾 Дописать аллергены из ТК в таблицу</button></div>
     <div class="card"><div class="stat"><span>Бот на компьютере</span><span>${a.bot_online ? '<span class="tag ok">на связи</span>' : '<span class="tag bad">не на связи</span>'}</span></div>
     <div class="stat"><span>Лист «Аллергены»</span><span>${a.allergen_sheet ? "заполнен" : "пустой"}</span></div>
     <div class="muted small" style="margin-top:6px">Без бота не работают «Чай» в чате, часы в личке и напоминания. Приложение работает и без него.</div></div>`;
 }
-ACT.aTab = ds => { S.adminTab = ds.t; drawAdmin(); };
 
-/** Пустить / закрыть: на экране сразу, запрос — в фоне. */
+/** Открыть / закрыть доступ: на экране сразу, запрос — в фоне. */
 ACT.aUser = async (ds, el, e) => {
   if (e) e.stopPropagation();
   const id = Number(ds.id), ok = ds.ok === "1";
   const u = S.adm && S.adm.users.find(x => x.id === id);
-  const prev = u && u.status;
-  if (u) { u.status = ok ? "approved" : "rejected"; LS.set("adm", S.adm); }
-  if (S.stack[S.stack.length - 1] === renderAdmin || !S.stack.length) drawAdmin(); else S.stack[S.stack.length - 1]();
+  const prev = u && { status: u.status, new: u.new };
+  if (u) { u.status = ok ? "approved" : "rejected"; u.new = false; LS.set("adm", S.adm); }
+  S.stack[S.stack.length - 1]();
   try {
     await api("admin_user", { id, ok });
     toast(ok ? "Доступ открыт" : "Доступ закрыт");
   } catch (er) {
-    if (u) { u.status = prev; LS.set("adm", S.adm); drawAdmin(); }
+    if (u) { Object.assign(u, prev); LS.set("adm", S.adm); S.stack[S.stack.length - 1](); }
     toast(er.message);
   }
 };
@@ -770,21 +772,22 @@ function renderAdminUser(id) {
 function drawAdminUser(p) {
   const u = p.user, sg = p.suggest;
   const cur = S.adm && S.adm.users.find(x => x.id === u.id);
-  if (cur) u.status = cur.status;  // статус свежее из списка (если только что пустили)
+  if (cur) u.status = cur.status;
   const secs = {};
   p.schedule.forEach(x => (secs[x.section] = secs[x.section] || []).push(x.name));
-  const sn = u.schedule_name || sg.schedule_name || "", tn = u.tips_name || sg.tips_name || "", rl = u.role || sg.role || "";
+  const sn = u.schedule_name || sg.schedule_name || "", tn = u.tips_name || sg.tips_name || "";
+  const rl = u.role && u.role !== "гость" ? u.role : (sg.role || u.role || "");
   const hint = (c, s) => !c && s ? ' <span class="tag warn">подсказка</span>' : "";
-  const status = u.owner ? "владелец" : ({ approved: "есть доступ", pending: "ждёт одобрения", rejected: "доступ закрыт" }[u.status] || "—");
+  const status = u.owner ? "владелец" : ({ approved: "есть доступ", pending: "есть доступ", rejected: "доступ закрыт" }[u.status] || "—");
   view.innerHTML = `<div class="card row" style="gap:12px"><div class="ava big">${h(initials(u.name))}</div>
     <div class="grow"><h3>${h(u.name || "Без имени")}</h3><div class="muted small">${u.username ? "@" + h(u.username) + " · " : ""}${status}</div></div></div>
-    ${u.owner ? "" : `<div class="btns" style="margin-bottom:10px">${u.status === "approved"
-      ? `<button class="btn danger" data-act="aUser" data-id="${u.id}" data-ok="0">Закрыть доступ</button>`
-      : `<button class="btn" data-act="aUser" data-id="${u.id}" data-ok="1">Пустить</button>`}</div>`}
+    ${u.owner ? "" : `<div class="btns" style="margin-bottom:10px">${u.status === "rejected"
+      ? `<button class="btn" data-act="aUser" data-id="${u.id}" data-ok="1">Открыть доступ</button>`
+      : `<button class="btn danger" data-act="aUser" data-id="${u.id}" data-ok="0">Закрыть доступ</button>`}</div>`}
     <div class="card">
-      <label class="l" style="margin-top:0">Роль${hint(u.role, sg.role)}</label>
+      <label class="l" style="margin-top:0">Роль${hint(u.role && u.role !== "гость" ? u.role : "", sg.role)}</label>
       <select class="f" id="uRole"><option value="">— не назначена —</option>${p.roles.map(r => `<option ${r === rl ? "selected" : ""}>${h(r)}</option>`).join("")}</select>
-      <div class="muted small" style="margin-top:4px">ТК, заготовки и учёт часов — бармены и администраторы. Гость видит только меню.</div>
+      <div class="muted small" style="margin-top:4px">Гость видит только меню. ТК, заготовки и учёт часов — бармены и администраторы.</div>
       <label class="l">Кто в графике${hint(u.schedule_name, sg.schedule_name)}</label>
       <select class="f" id="uSched"><option value="">— не связан —</option>${Object.entries(secs).map(([s, ns]) => `<optgroup label="${h(s)}">${ns.map(n => `<option ${n === sn ? "selected" : ""}>${h(n)}</option>`).join("")}</optgroup>`).join("")}</select>
       <label class="l">Кто в таблице чаевых${hint(u.tips_name, sg.tips_name)}</label>
@@ -798,7 +801,7 @@ ACT.aSaveUser = async (ds, el) => {
   try {
     await api("admin_user_update", body);
     const u = S.adm && S.adm.users.find(x => x.id === id);
-    if (u) { Object.assign(u, { role: body.role, schedule_name: body.schedule_name, tips_name: body.tips_name }); LS.set("adm", S.adm); }
+    if (u) { Object.assign(u, { role: body.role, schedule_name: body.schedule_name, tips_name: body.tips_name, new: false }); LS.set("adm", S.adm); }
     if (id === S.me.id) { S.me = await api("me"); LS.set("me", S.me); }
     toast("Сохранил"); back();
   } catch (e) { toast(e.message); el.disabled = false; }
@@ -895,6 +898,19 @@ function openGloss(i) {
 function closeGloss() { const sh = $("#sheet"); if (sh) sh.classList.remove("on"); }
 view.addEventListener("click", ev => { const a = ev.target.closest("[data-gi]"); if (a) { haptic(); openGloss(Number(a.dataset.gi)); } });
 
+// ---------- фото меню: маленькие превью, прямые ссылки с кэшем на сутки ----------
+/** Ссылка Google Диска → прямая ссылка на картинку нужной ширины в WebP (кэшируется телефоном, без переадресаций). */
+function photoSrc(url, w) {
+  const m = /[?&]id=([\w-]+)/.exec(url || "") || /\/d\/([\w-]+)/.exec(url || "");
+  return m ? `https://lh3.googleusercontent.com/d/${m[1]}=w${w}-rw` : url;
+}
+const preloaded = new Set();
+/** Превью меню грузим заранее в фоне — к моменту открытия «Кухни» они уже в кэше. */
+function preloadPhotos(menu) {
+  const list = ((menu && menu.kitchen && menu.kitchen.items) || []).filter(i => i.photo).map(i => photoSrc(i.photo, 240));
+  list.forEach(src => { if (preloaded.has(src)) return; preloaded.add(src); const im = new Image(); im.decoding = "async"; im.src = src; });
+}
+
 // ---------- старт ----------
 function startUI() {
   if (S.me.is_guest) {  // гость: только меню
@@ -916,7 +932,7 @@ function prefetch() {
     const jobs = [["sch0", "schedule", { offset: 0 }], ["menu", "menu", {}]];
     if (S.me.is_owner) jobs.push(["adm", "admin_overview", {}]);
     for (const [key, action, params] of jobs) {
-      try { LS.set(key, await api(action, params)); } catch (e) {}
+      try { const d = await api(action, params); LS.set(key, d); if (key === "menu") preloadPhotos(d); } catch (e) {}
     }
   }, 300);
 }

@@ -201,3 +201,7 @@ a.gl { color: var(--link); text-decoration: underline; text-decoration-style: do
 .ava { width: 40px; height: 40px; border-radius: 50%; background: var(--soft); color: var(--accent); display: grid; place-items: center; font-weight: 700; font-size: 15px; }
 .ava.big { width: 52px; height: 52px; font-size: 19px; flex: none; }
 .badge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--danger); color: #fff; font-size: 11px; line-height: 18px; }
+.tile { position: relative; }
+.ticon { font-size: 26px; line-height: 1; }
+.dotwarn { position: absolute; top: 12px; right: 12px; width: 10px; height: 10px; border-radius: 50%; background: var(--danger); }
+.item .ava { width: 36px; height: 36px; font-size: 13px; flex: none; }
