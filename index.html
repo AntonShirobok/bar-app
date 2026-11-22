@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Бар</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header id="top">
+  <h1 id="title">Бар</h1>
+  <div id="sub"></div>
+</header>
+<main id="view"><div class="loader"></div></main>
+<nav id="tabs">
+  <button data-tab="schedule"><span class="ic">📅</span><span>График</span></button>
+  <button data-tab="money"><span class="ic">💰</span><span>Деньги</span></button>
+  <button data-tab="tk"><span class="ic">🍸</span><span>ТК</span></button>
+  <button data-tab="stock"><span class="ic">🧪</span><span>Заготовки</span></button>
+  <button data-tab="more"><span class="ic">☰</span><span>Ещё</span></button>
+</nav>
+<div id="toast"></div>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
