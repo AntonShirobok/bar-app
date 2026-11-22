@@ -585,6 +585,8 @@ function renderMore() {
     ${row("open", "tk", "🍸", "Тех. карты", "Поиск, ПФ, калькулятор батча")}
     ${row("open", "stock", "🧪", "Заготовки", "Что нужно сделать по стоку")}
     ${row("open", "guest", "🎪", "Гостевая смена", "Заказ, сообщение и Excel")}</div></div>`;
+  if (S.me.can_hours) html += `<div class="card" style="padding:0"><div class="list" style="margin:0">
+    ${row("open", "myhours", "🕒", "Мои часы", "Смены по дням: с какого и до какого")}</div></div>`;
   html += `<div class="card" style="padding:0"><div class="list" style="margin:0">
     ${row("open", "allergens", "🥜", "Аллергены", "Составы и фильтр «без…»")}
     ${row("open", "profile", "🙋", "Профиль", h(S.me.role || "роль не назначена"))}
@@ -593,7 +595,29 @@ function renderMore() {
     <div class="muted small" style="text-align:center;margin-top:14px">Данные из Google Таблиц обновляются раз в 10 минут</div>`;
   view.innerHTML = html;
 }
-ACT.open = ds => push({ bar: renderBar, tk: renderTK, stock: renderStock, allergens: renderAllergens, guest: renderGuest, admin: renderAdmin, profile: renderProfile }[ds.s]);
+ACT.open = ds => push({ myhours: renderMyHours, bar: renderBar, tk: renderTK, stock: renderStock, allergens: renderAllergens, guest: renderGuest, admin: renderAdmin, profile: renderProfile }[ds.s]);
+
+// ---------- мои часы ----------
+function renderMyHours() {
+  S.myh = S.myh || 0;
+  setHead("Мои часы", S.me.tips_name || "");
+  const off = S.myh;
+  fresh("myh" + off, "my_hours", { offset: off }, d => { if (S.myh === off) drawMyHours(d); });
+}
+function drawMyHours(d) {
+  let html = `<div class="card"><div class="row between"><button class="btn sm ghost" data-act="myhM" data-d="-1">‹</button>
+    <h2 style="margin:0">${h(d.title)}</h2>
+    <button class="btn sm ghost" data-act="myhM" data-d="1" ${d.offset >= 0 ? "disabled" : ""}>›</button></div>
+    <div class="row between" style="margin-top:10px"><div><div class="big num">${hrs(d.total)} ч</div>
+    <div class="muted small">смен: ${d.rows.length}</div></div></div></div>`;
+  if (!d.rows.length) html += `<div class="card">${empty("🕒", "В этом месяце смен пока нет")}</div>`;
+  else html += `<div class="card"><table class="t"><tr><th>День</th><th>С – до</th><th class="r">Часы</th></tr>
+    ${d.rows.map(r => `<tr class="${r.date === S.me.today ? "hl" : ""}"><td>${WD[dt(r.date).getDay()]} ${dt(r.date).getDate()}</td>
+      <td class="num">${h(r.start || "?")} – ${h(r.end || "?")}</td><td class="r num">${hrs(r.hours)}</td></tr>`).join("")}</table></div>`;
+  html += `<div class="muted small" style="text-align:center">Откуда: ${h(d.source)}</div>`;
+  view.innerHTML = html;
+}
+ACT.myhM = ds => { S.myh = Math.min(0, (S.myh || 0) + Number(ds.d)); renderMyHours(); };
 
 function renderProfile() {
   setHead("Профиль");
@@ -816,17 +840,40 @@ function drawAdminUser(p) {
       <label class="l">Кто в таблице чаевых${hint(u.tips_name, sg.tips_name)}</label>
       <select class="f" id="uTips"><option value="">— не связан —</option>${p.tips.map(n => `<option ${n === tn ? "selected" : ""}>${h(n)}</option>`).join("")}</select>
       ${p.tips.length ? "" : '<div class="small" style="color:var(--danger);margin-top:4px">Таблица чаевых сейчас недоступна</div>'}
-      <button class="btn" data-act="aSaveUser" data-id="${u.id}">Сохранить</button></div>`;
+      <button class="btn" data-act="aSaveUser" data-id="${u.id}">Сохранить</button></div>
+    ${tsCard(p, u)}`;
 }
+function tsCard(p, u) {
+  if (!p.can_hours && !p.timesheet) return "";
+  let body;
+  if (p.timesheet) body = `<div class="muted small">Бот пишет сюда часы и сам добавляет лист каждого месяца.</div>
+    <button class="btn ghost" data-act="link" data-url="${h(p.timesheet.url)}">Открыть табель</button>`;
+  else if (u.tips_name) body = `<div class="muted small">Табеля пока нет. Заведу по образцу табеля Романа и перенесу уже записанные смены.</div>
+    <button class="btn ghost" data-act="aTs" data-id="${u.id}">Завести табель</button>`;
+  else body = `<div class="muted small">Табель заведётся сам, когда выберешь имя в таблице чаевых.</div>`;
+  return `<div class="card"><h2>📒 Личный табель</h2>${body}</div>`;
+}
+ACT.link = ds => { if (tg) tg.openLink(ds.url); else window.open(ds.url); };
+ACT.aTs = async (ds, el) => {
+  el.disabled = true; el.textContent = "Завожу… (до 20 секунд)";
+  try {
+    const r = await api("admin_timesheet", { id: Number(ds.id) });
+    toast(r.created ? `Табель заведён${r.filled ? `, перенёс смен: ${r.filled}` : ""}` : "Табель уже есть");
+    el.outerHTML = `<button class="btn ghost" data-act="link" data-url="${h(r.url)}">Открыть табель</button>`;
+  } catch (e) { toast(e.message); el.disabled = false; el.textContent = "Завести табель"; }
+};
 ACT.aSaveUser = async (ds, el) => {
   el.disabled = true;
   const id = Number(ds.id), body = { id, role: $("#uRole").value, schedule_name: $("#uSched").value, tips_name: $("#uTips").value };
   try {
-    await api("admin_user_update", body);
+    const r = await api("admin_user_update", body);
+    if (r.timesheet && r.timesheet.created) toast("Сохранил и завёл личный табель");
+    else if (r.timesheet && r.timesheet.error) toast("Сохранил, но табель не завёлся: " + r.timesheet.error);
     const u = S.adm && S.adm.users.find(x => x.id === id);
     if (u) { Object.assign(u, { role: body.role, schedule_name: body.schedule_name, tips_name: body.tips_name, new: false }); LS.set("adm", S.adm); }
     if (id === S.me.id) { S.me = await api("me"); LS.set("me", S.me); }
-    toast("Сохранил"); back();
+    if (!r.timesheet) toast("Сохранил");
+    back();
   } catch (e) { toast(e.message); el.disabled = false; }
 };
 ACT.aNm = async (ds, el) => {
