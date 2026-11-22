@@ -869,7 +869,12 @@ function prefetch() {
   if (cachedMe) { S.me = cachedMe; S.booting = true; startUI(); }
   let boot;
   try {
-    boot = await api("boot");
+    try { boot = await api("boot"); }
+    catch (e) {  // скрипт ещё старой версии — по-старому, двумя запросами
+      if (!/неизвестное действие/.test(e.message)) throw e;
+      const me = await api("me");
+      boot = { me, dashboard: me.is_guest ? null : await api("dashboard") };
+    }
   } catch (e) {
     S.booting = false;
     if (cachedMe && e.status !== 403 && e.status !== 401) { toast("Не обновилось: " + e.message); if (S.tab === "home" && !S.stack.length) renderHome(); return; }
