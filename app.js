@@ -514,6 +514,12 @@ function drawMenuScreen() {
   $("#mq").addEventListener("input", e => { S.menuQ = e.target.value; drawMenu(); });
   drawMenu();
 }
+/** «150.0» → «150 ккал/100 г»; текст вроде «58 кл на 100гр.» показываем как есть. */
+function kcal(v) {
+  const s = String(v || "").trim();
+  if (!s) return "";
+  return /^\d+([.,]\d+)?$/.test(s) ? `${Math.round(parseFloat(s.replace(",", ".")))} ккал/100 г` : h(s);
+}
 function menuItems() {
   const m = S.menu, q = norm(S.menuQ || "");
   return (S.menuMode === "kitchen" ? m.kitchen.items : m.bar)
@@ -534,7 +540,7 @@ function drawMenu() {
     <div class="dish ${kitchen ? "tap" : ""}" ${kitchen ? `data-act="dish" data-k="${h(i.section + "|" + i.name)}"` : ""}>${i.photo ? `<img src="${h(photoSrc(i.photo, 240))}" alt="" width="76" height="76" decoding="async">` : (kitchen && anyPhoto ? '<div class="nophoto">🍽</div>' : "")}
       <div class="grow"><div class="row between" style="align-items:flex-start"><div class="t">${h(i.name)} ${i.new ? '<span class="tag ok">NEW</span>' : ""}</div>
       ${i.price ? `<b class="num" style="white-space:nowrap">${money(i.price)}</b>` : ""}</div>
-      ${i.weight ? `<div class="muted small">${h(i.weight)}</div>` : ""}
+      ${i.weight || i.calories ? `<div class="muted small">${[h(i.weight || ""), kcal(i.calories)].filter(Boolean).join(" · ")}</div>` : ""}
       <div class="s clamp">${h(i.composition)}</div>
       ${alTags(i)}
     </div></div>`).join("")}</div>`; }).join("");
@@ -677,7 +683,7 @@ ACT.gPick = async ds => {
 // ---------- админ ----------
 // Админка: стартовый экран — плитки-разделы, внутри — список людей. Открывается из сохранённых данных.
 const ADMIN_CATS = {
-  new: { icon: "👋", title: "Новые", hint: "Гости, которых ты ещё не разобрал", test: u => !u.owner && u.status !== "rejected" && (u.new || u.status === "pending") },
+  new: { icon: "🔔", title: "Заявки", hint: "Ждут твоего разрешения", test: u => !u.owner && u.status === "pending" },
   staff: { icon: "🧑‍🍳", title: "Сотрудники", hint: "Все, у кого роль не «гость»", test: u => u.status === "approved" && (u.owner || (u.role && u.role !== "гость")) },
   guests: { icon: "🍽", title: "Гости", hint: "Видят только меню", test: u => !u.owner && u.status === "approved" && (!u.role || u.role === "гость") },
   closed: { icon: "🚫", title: "Доступ закрыт", hint: "Бот им ничего не показывает", test: u => u.status === "rejected" },
@@ -691,7 +697,7 @@ function drawAdminHome() {
   const t = (act, key, icon, title, sub, warn) => `<div class="tile" data-act="${act}" data-c="${key}">
     <div class="ticon">${icon}</div><div class="t">${title}</div><div class="muted small">${sub}</div>${warn ? '<span class="dotwarn"></span>' : ""}</div>`;
   view.innerHTML = `<div class="tiles">
-    ${t("aCat", "new", ADMIN_CATS.new.icon, "Новые", n("new") ? `<b>${n("new")}</b> ждут` : "никого", n("new") > 0)}
+    ${t("aCat", "new", ADMIN_CATS.new.icon, "Заявки", n("new") ? `<b>${n("new")}</b> ждут` : "нет", n("new") > 0)}
     ${t("aCat", "staff", ADMIN_CATS.staff.icon, "Сотрудники", `${n("staff")} чел.`)}
     ${t("aCat", "guests", ADMIN_CATS.guests.icon, "Гости", `${n("guests")} чел.`)}
     ${t("aCat", "closed", ADMIN_CATS.closed.icon, "Доступ закрыт", `${n("closed")} чел.`)}
@@ -712,9 +718,11 @@ function renderAdminList(cat) {
       const tag = u.owner ? '<span class="tag">владелец</span>' : u.status === "rejected" ? '<span class="tag bad">закрыт</span>'
         : `<span class="tag">${h(u.role || "гость")}</span>`;
       const linked = h([u.schedule_name, u.tips_name].filter(Boolean).join(" · ") || "не связан с таблицами");
+      const quick = u.status === "pending" ? `<div class="btns" style="gap:4px;flex:none"><button class="btn sm" data-act="aUser" data-id="${u.id}" data-ok="1">Пустить</button>
+        <button class="btn sm danger" data-act="aUser" data-id="${u.id}" data-ok="0">✕</button></div>` : '<span class="chev"></span>';
       return `<div class="item tap" data-act="aEdit" data-id="${u.id}"><div class="ava">${h(initials(u.name))}</div>
         <div class="grow"><div class="t">${h(u.name || "Без имени")} ${u.username ? `<span class="muted small">@${h(u.username)}</span>` : ""}</div>
-        <div class="s">${tag} ${linked}</div></div><span class="chev"></span></div>`;
+        <div class="s">${u.status === "pending" ? '<span class="tag warn">заявка</span>' : tag} ${linked}</div></div>${quick}</div>`;
     }).join("")}</div></div><div class="muted small" style="text-align:center">Нажми на человека, чтобы назначить роль и имена в таблицах.</div>`;
   };
   if (S.adm) draw();
@@ -752,7 +760,7 @@ ACT.aUser = async (ds, el, e) => {
   const id = Number(ds.id), ok = ds.ok === "1";
   const u = S.adm && S.adm.users.find(x => x.id === id);
   const prev = u && { status: u.status, new: u.new };
-  if (u) { u.status = ok ? "approved" : "rejected"; u.new = false; LS.set("adm", S.adm); }
+  if (u) { u.status = ok ? "approved" : "rejected"; u.new = false; if (ok && !u.role) u.role = "гость"; LS.set("adm", S.adm); }
   S.stack[S.stack.length - 1]();
   try {
     await api("admin_user", { id, ok });
@@ -778,12 +786,13 @@ function drawAdminUser(p) {
   const sn = u.schedule_name || sg.schedule_name || "", tn = u.tips_name || sg.tips_name || "";
   const rl = u.role && u.role !== "гость" ? u.role : (sg.role || u.role || "");
   const hint = (c, s) => !c && s ? ' <span class="tag warn">подсказка</span>' : "";
-  const status = u.owner ? "владелец" : ({ approved: "есть доступ", pending: "есть доступ", rejected: "доступ закрыт" }[u.status] || "—");
+  const status = u.owner ? "владелец" : ({ approved: "есть доступ", pending: "ждёт разрешения", rejected: "доступ закрыт" }[u.status] || "—");
   view.innerHTML = `<div class="card row" style="gap:12px"><div class="ava big">${h(initials(u.name))}</div>
     <div class="grow"><h3>${h(u.name || "Без имени")}</h3><div class="muted small">${u.username ? "@" + h(u.username) + " · " : ""}${status}</div></div></div>
-    ${u.owner ? "" : `<div class="btns" style="margin-bottom:10px">${u.status === "rejected"
-      ? `<button class="btn" data-act="aUser" data-id="${u.id}" data-ok="1">Открыть доступ</button>`
-      : `<button class="btn danger" data-act="aUser" data-id="${u.id}" data-ok="0">Закрыть доступ</button>`}</div>`}
+    ${u.owner ? "" : `<div class="btns" style="margin-bottom:10px">${u.status === "approved"
+      ? `<button class="btn danger" data-act="aUser" data-id="${u.id}" data-ok="0">Закрыть доступ</button>`
+      : `<button class="btn" data-act="aUser" data-id="${u.id}" data-ok="1">${u.status === "pending" ? "Пустить" : "Открыть доступ"}</button>
+         ${u.status === "pending" ? `<button class="btn danger" data-act="aUser" data-id="${u.id}" data-ok="0">Отклонить</button>` : ""}`}</div>`}
     <div class="card">
       <label class="l" style="margin-top:0">Роль${hint(u.role && u.role !== "гость" ? u.role : "", sg.role)}</label>
       <select class="f" id="uRole"><option value="">— не назначена —</option>${p.roles.map(r => `<option ${r === rl ? "selected" : ""}>${h(r)}</option>`).join("")}</select>
