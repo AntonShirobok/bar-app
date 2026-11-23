@@ -218,3 +218,31 @@ a.gl { color: var(--link); text-decoration: underline; text-decoration-style: do
 .link { color: var(--link); cursor: pointer; }
 .card.soft { background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
 .seg.theme { margin: 4px 0 2px; background: var(--bg); }
+
+/* главная */
+.hero2 { background: var(--accent); color: var(--accent-text); border-radius: 18px; padding: 14px 16px; }
+.hero2 .small { opacity: .92; }
+.hero-time { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+.ava-row { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.ava-s { width: 26px; height: 26px; border-radius: 50%; background: var(--card); color: var(--accent); font-size: 11px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center; margin-right: -2px; }
+.ava-row .small { margin-left: 6px; }
+.mbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--bg); }
+.mbar i { display: block; height: 100%; }
+.legend2 { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
+.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.kpis div { background: var(--bg); border-radius: 10px; padding: 8px 10px; }
+.kpis small { display: block; font-size: 11px; color: var(--hint); }
+.kpis b { font-size: 16px; }
+.wbars { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.wbars div { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-end; height: 84px; }
+.wbars i { display: block; background: var(--bg); border-radius: 5px; }
+.wbars i.f { background: var(--accent); }
+.wbars div.on i { outline: 1.5px solid var(--accent); outline-offset: 1px; }
+.wbars small { font-size: 11px; color: var(--hint); text-align: center; margin-top: 4px; white-space: nowrap; }
+.wbars div.on small { color: var(--accent); font-weight: 600; }
+.qa-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.qa-grid.one { grid-template-columns: 1fr; }
+.qa { display: flex; flex-direction: column; gap: 2px; margin: 0 0 10px; }
+.qa-ic { font-size: 20px; }
+.qa small { font-size: 12px; }

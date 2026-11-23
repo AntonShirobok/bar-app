@@ -137,61 +137,80 @@ async function renderHome() {
   if (S.booting) { const c = LS.get("dash"); if (c) drawHome(c); else loading(); return; }  // главную принесёт boot
   fresh("dash", "dashboard", {}, drawHome);
 }
+function initialsOf(name) {
+  const w = String(name || "").trim().split(/\s+/);
+  return ((w[0] || "?")[0] + (w[1] ? w[1][0] : "")).toUpperCase();
+}
+const num0 = v => parseFloat(String(v || "").replace(/\s/g, "").replace(",", ".")) || 0;
+
+/** Главная: смена → деньги месяца → неделя → быстрые действия → бар → кто сегодня. */
 function drawHome(d) {
   S.dash = d;
   let html = "";
 
-  // ближайшая смена
+  // 1. ближайшая смена — цветная карточка
   if (d.next) {
-    const isToday = d.next.day === d.today;
-    html += `<div class="card hero"><h2>${isToday ? "Сегодня смена" : "Ближайшая смена"}</h2>
-      <div class="row between"><div><div class="big">${isToday ? "Сегодня" : human(d.next.day)}</div>
-      <div class="num" style="font-size:18px;font-weight:600">${d.next.start}–${d.next.end}</div></div>
-      <div class="right muted small">${hrs(d.next.hours)} ч${d.next.station ? `<br>точка ${h(d.next.station)}` : ""}</div></div>
-      ${d.next.team.length ? `<div class="muted small" style="margin-top:10px">С тобой:</div><div class="chips wrap">${d.next.team.map(t => `<span class="chip">${h(t)}</span>`).join("")}</div>` : ""}
-      ${d.month_left !== undefined ? `<div class="muted small">В этом месяце ещё смен: <b>${d.month_left}</b> из ${d.month_shifts}</div>` : ""}</div>`;
+    const n = d.next, when = n.day === d.today ? "сегодня" : n.day === addDaysIso(d.today, 1) ? "завтра" : human(n.day);
+    const team = n.team || [];
+    html += `<div class="card hero2"><div class="small">Ближайшая смена · ${h(when)}</div>
+      <div class="row between" style="align-items:flex-end;margin-top:2px"><div class="hero-time num">${n.start}–${n.end}</div>
+      <div class="small">${hrs(n.hours)} ч${n.station ? ` · точка ${h(n.station)}` : ""}</div></div>
+      ${team.length ? `<div class="ava-row">${team.slice(0, 4).map(t => `<span class="ava-s" title="${h(t)}">${h(initialsOf(t))}</span>`).join("")}
+        <span class="small">${team.length > 4 ? `и ещё ${team.length - 4}` : "с тобой"}</span></div>` : ""}</div>`;
   } else if (S.me.schedule_name) {
     html += `<div class="card">${empty("🌴", "Ближайших смен в графике нет")}</div>`;
   } else {
     html += `<div class="card">${empty("🙈", "Владелец ещё не связал тебя с графиком")}</div>`;
   }
 
-  // деньги
+  // 2. деньги за месяц: сумма, полоса «ставка / процент», плитки
   if (d.month) {
-    const m = d.month;
-    html += `<div class="card"><div class="row between"><h2 style="margin:0">Деньги · ${h(m.title)}</h2>
-      ${m.prev_title ? `<button class="btn sm ghost" data-act="moPrev">${h(m.prev_title)} ›</button>` : ""}</div>`;
-    html += salaryBlock(m) + tipsLine(m.tips);
-    html += `</div>`;
+    const m = d.month, x = m.row;
+    const sp = m.split, basePct = sp ? sp.base_pct : 100;
+    const done = d.month_shifts !== undefined ? d.month_shifts - d.month_left : null;
+    html += `<div class="card"><div class="row between small muted"><span>${h(m.title)} · ${x ? (m.live ? "зарплата сейчас" : "зарплата к выплате") : "предварительно"}</span>
+      ${m.prev_title ? `<span class="link" data-act="moPrev">${h(m.prev_title)} ›</span>` : ""}</div>`;
+    if (x) {
+      html += `<div class="big num" style="margin:2px 0 8px">${money(x.total)}</div>
+        <div class="mbar"><i style="width:${basePct}%;background:var(--c-base)"></i><i style="width:${100 - basePct}%;background:var(--c-tips)"></i></div>
+        <div class="legend2 small muted"><span><span class="dot" style="background:var(--c-base)"></span>${x.rate >= 5000 ? "оклад" : "ставка"} ${money(sp ? sp.base : 0)}</span>
+        <span><span class="dot" style="background:var(--c-tips)"></span>${sp && sp.pct ? `процент ${money(sp.pct)}` : m.live ? "процент — ждём продажи" : "процент 0"}</span></div>
+        ${x.deduct ? `<div class="small muted">Вычет −${money(x.deduct)}</div>` : ""}`;
+    } else {
+      html += `<div class="big num" style="margin:2px 0 4px">${m.estimate ? "≈" + money(m.estimate) : hrs(m.hours) + " ч"}</div>
+        <div class="small muted">${m.estimate ? `по ставке за ${hrs(m.hours)} ч, без процента` : `отработано ${h(m.source || "")}`}</div>`;
+    }
+    html += `<div class="kpis"><div><small>Часы</small><b class="num">${hrs(x ? x.hours : m.hours)}</b></div>
+      <div><small>Чаевые</small><b class="num">${m.tips ? money(m.tips.sum).replace(/\s?₽$/, "") : "—"}</b></div>
+      <div><small>Смен</small><b class="num">${done !== null ? `${done} / ${d.month_shifts}` : "—"}</b></div></div></div>`;
   }
 
-  // неделя
+  // 3. неделя: к выдаче и столбики по дням
   if (d.week && d.week.me && S.me.can_hours) {
-    const w = d.week, me = w.me;
-    const total = me.hours.reduce((a, v) => a + (parseFloat(String(v).replace(",", ".")) || 0), 0);
-    html += `<div class="card"><div class="row between"><h2 style="margin:0">Эта неделя</h2>
-      <button class="btn sm ghost" data-act="weekDetail">подробнее ›</button></div>
-      <div class="row between" style="margin:10px 0 6px"><div><div class="muted small">Тебе к выдаче</div><div class="big num">${h(me.pay || "—")}</div></div>
-      <div class="right"><div class="muted small">Часы · взял</div><div class="num" style="font-size:18px;font-weight:600">${hrs(total)} · ${h(me.took || "0")}</div></div></div>
-      <div class="weekbar">${w.days.map((x, i) => `<div class="${x.date === d.today ? "on" : ""}"><small>${WD[dt(x.date).getDay()]}</small><b>${h(me.hours[i] || "·")}</b></div>`).join("")}</div>
-      <button class="btn" data-act="hoursForm">＋ Записать часы</button></div>`;
+    const w = d.week, me = w.me, hh = me.hours.map(num0), total = hh.reduce((a, v) => a + v, 0), max = Math.max(12, ...hh);
+    html += `<div class="card tapcard" data-act="weekDetail"><div class="row between small muted"><span>Эта неделя · к выдаче</span><span>${hrs(total)} ч${me.took ? ` · взял ${h(me.took)}` : ""}</span></div>
+      <div class="num" style="font-size:22px;font-weight:700;margin:2px 0 10px">${h(me.pay || "—")}</div>
+      <div class="wbars">${w.days.map((x, i) => `<div class="${x.date === d.today ? "on" : ""}"><i class="${hh[i] ? "f" : ""}" style="height:${hh[i] ? Math.max(18, hh[i] / max * 100) : 14}%"></i>
+        <small>${WD[dt(x.date).getDay()].toLowerCase()}${hh[i] ? " " + hrs(hh[i]) : ""}</small></div>`).join("")}</div></div>`;
   } else if (!S.me.tips_name) {
     html += `<div class="card muted small">Деньги появятся, когда владелец свяжет тебя с таблицей чаевых.</div>`;
   }
 
-  // бар сейчас: счётчики и кто отметился
+  // 4. быстрые действия
+  const qa = [];
+  if (S.me.can_hours) qa.push(`<div class="card tapcard qa" data-act="hoursForm"><span class="qa-ic">🕒</span><b>Записать часы</b><small class="muted">за смену</small></div>`);
+  if (d.stock_to_make !== undefined) qa.push(`<div class="card tapcard qa" data-act="openStock"><span class="qa-ic">🧪</span><b>Заготовки</b>
+    <small style="color:${d.stock_to_make ? "var(--warn)" : "var(--ok)"}">${d.stock_to_make ? `нужно ${d.stock_to_make} поз.` : "всё есть"}</small></div>`);
+  if (qa.length) html += `<div class="qa-grid ${qa.length === 1 ? "one" : ""}">${qa.join("")}</div>`;
+
+  // 5. бар сейчас — одной строкой
   if (d.bar) {
-    html += `<div class="card tapcard" data-act="openBar"><div class="row between"><h2 style="margin:0">🍻 Грязнульки</h2><span class="chev"></span></div>
-      ${countersHtml(d.bar)}<div class="muted small" style="margin-top:6px">Отметились сегодня: <b>${d.bar.total}</b></div></div>`;
+    const titles = d.bar.counter_titles || [{ key: "highball", icon: "🥃" }, { key: "champagne", icon: "🍾" }];
+    html += `<div class="card tapcard row between" data-act="openBar"><div><div class="small muted">Грязнульки · отметились ${d.bar.total}</div>
+      <div style="font-weight:600">${titles.map(t => `${t.icon} ${(d.bar.counters[t.key] || 0).toLocaleString("ru-RU")}`).join(" · ")}</div></div><span class="chev"></span></div>`;
   }
 
-  // заготовки (бармены)
-  if (d.stock_to_make !== undefined) {
-    html += `<div class="card tapcard" data-act="openStock"><div class="row between"><div><h2 style="margin:0 0 2px">Заготовки</h2>
-      <div>${d.stock_to_make ? `Нужно сделать: <b>${d.stock_to_make}</b>` : "Всё есть ✅"}</div></div><span class="chev"></span></div></div>`;
-  }
-
-  // кто сегодня
+  // 6. кто сегодня
   if (d.today_team && d.today_team.length) {
     const groups = {};
     d.today_team.forEach(p => (groups[p.section] = groups[p.section] || []).push(p));
@@ -201,26 +220,11 @@ function drawHome(d) {
   if (d.errors && d.errors.length) html += `<div class="muted small" style="text-align:center">Не всё загрузилось: ${h(d.errors.join("; "))}</div>`;
   view.innerHTML = html;
 }
+function addDaysIso(iso, n) { const x = dt(iso); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; }
 ACT.openStock = () => push(renderStock);
 ACT.moHistory = () => push(renderMoneyHistory);
 ACT.moPrev = () => { S.money.offset = -1; push(renderMoneyHistory); };
 
-/** Зарплата за месяц: ставка + процент от продаж − вычет. Итог из листа месяца, а пока его нет — вживую из «ТабельБот». */
-function salaryBlock(m) {
-  if (m.row) {
-    const x = m.row;
-    let html = `<div class="big num" style="margin:8px 0 2px">${money(x.total)}</div>
-      <div class="muted small">${m.live ? "зарплата сейчас" : "зарплата к выплате"} · ${hrs(x.hours)} ч</div>`;
-    if (m.split && m.split.pct) html += donut(m.split);  // без процента кольцо — сплошная ставка, смысла нет
-    if (x.deduct) html += `<div class="muted small">Вычет: −${money(x.deduct)}</div>`;
-    if (m.live && !x.pct && !(x.rate >= 5000)) html += `<div class="muted small">Процент от продаж появится, когда бар-менеджер внесёт продажи.</div>`;
-    if (m.live) html += `<div class="muted small" style="margin-top:6px"><span class="tag warn">идёт месяц</span> считается по «ТабельБот», итог — после закрытия месяца</div>`;
-    return html;
-  }
-  return `<div class="row between" style="margin-top:8px"><div><div class="big num">${hrs(m.hours)} ч</div><div class="muted small">отработано ${h(m.source)}</div></div>
-    ${m.estimate ? `<div class="right"><div class="big num">≈${money(m.estimate)}</div><div class="muted small">по ставке, без процента</div></div>` : ""}</div>
-    <div class="muted small" style="margin-top:8px"><span class="tag warn">предварительно</span> Процент от продаж и итог появятся в «ТабельБот» и листе месяца.</div>`;
-}
 /** Чаевые — отдельно от зарплаты: сумма колонки «Чаевые» по неделям месяца. */
 function tipsLine(t) {
   if (!t || (!t.weeks && !t.missed)) return "";
