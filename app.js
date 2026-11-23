@@ -1152,9 +1152,16 @@ function renderAdminMoney() {
     <div class="item tap chev" data-act="aOpen" data-s="tips"><div class="t">Неделя: к выдаче по всем</div></div>
     <div class="item tap chev" data-act="aOpen" data-s="salary"><div class="t">Зарплата всех за месяц</div></div>
     <div class="item tap chev" data-act="aRates"><div class="t">Ставка за час по ролям</div></div></div></div>
-    <div class="card"><label class="l" style="margin-top:0">Нетмонет за эту неделю</label>
-    <div class="row"><input class="f num" id="aNm" type="number" inputmode="decimal" placeholder="9080"><button class="btn sm" data-act="aNm">Записать</button></div>
-    <div class="muted small" style="margin-top:8px">Эта неделя (с ${h(human(a.week.monday))}) пишется в лист «${h(a.week.tab)}». Лист выбирается сам; исправить — в «Данных».</div></div>`;
+    <div class="card"><label class="l" style="margin-top:0">Нетмонет</label>
+    <select class="f" id="aNmWeek"><option value="">Эта неделя (с ${h(human(a.week.monday))}) · «${h(a.week.tab)}»</option></select>
+    <div class="row" style="margin-top:8px"><input class="f num" id="aNm" type="number" inputmode="decimal" placeholder="9080"><button class="btn sm" data-act="aNm">Записать</button></div>
+    <div class="muted small" style="margin-top:8px">Можно за эту неделю или за прошлые, пока их лист не занят новой неделей. Лист для этой недели выбирается сам; исправить — в «Данных».</div></div>`;
+  api("admin_netmonet_weeks").then(r => {  // прошлые недели и что уже вписано
+    const sel = $("#aNmWeek");
+    if (!sel) return;
+    const dm = iso => `${+iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+    sel.innerHTML = r.weeks.map((w, n) => `<option value="${n ? w.monday : ""}">${n === 0 ? "Эта неделя · " : n === 1 ? "Прошлая · " : ""}${dm(w.monday)}–${dm(addDaysIso(w.monday, 6))} · ${h(w.tab)}${w.value ? ` · ${h(w.value)}` : ""}</option>`).join("");
+  }).catch(() => {});
 }
 function renderAdminData() {
   setHead("Данные");
@@ -1332,7 +1339,13 @@ ACT.aSaveUser = async (ds, el) => {
 ACT.aNm = async (ds, el) => {
   const v = $("#aNm").value; if (!v) return;
   el.disabled = true;
-  try { const r = await api("admin_netmonet", { amount: v }); toast(`Нетмонет ${r.amount} → «${r.tab}»`); $("#aNm").value = ""; } catch (e) { toast(e.message); }
+  const wk = $("#aNmWeek") ? $("#aNmWeek").value : "";
+  try {
+    const r = await api("admin_netmonet", { amount: v, monday: wk });
+    toast(`Нетмонет ${r.amount} → «${r.tab}» (неделя с ${human(r.monday)})`); $("#aNm").value = "";
+    const o = $("#aNmWeek") && $("#aNmWeek").selectedOptions[0];
+    if (o) o.textContent = o.textContent.replace(/( · \d+ неделя)( · .*)?$/, `$1 · ${r.amount}`);
+  } catch (e) { toast(e.message); }
   el.disabled = false;
 };
 ACT.aRefresh = async (ds, el) => { el.disabled = true; try { await api("admin_refresh"); S.tk = null; S.al = null; toast("Обновил"); } catch (e) { toast(e.message); } el.disabled = false; };
