@@ -617,7 +617,7 @@ async function renderStock() {
   S.stock = d;
   const items = S.stockAll ? d.items : d.items.filter(i => i.make > 0);
   const need = d.items.filter(i => i.make > 0).length;
-  let html = `<button class="btn ghost" data-act="open" data-s="orders" style="margin:0 0 10px">🧾 Собрать заказ поставщикам</button>
+  let html = `${S.me.is_owner ? '<button class="btn ghost" data-act="open" data-s="orders" style="margin:0 0 10px">🧾 Собрать заказ поставщикам</button>' : ""}
     <div class="seg"><button data-act="stockMode" data-a="0" class="${S.stockAll ? "" : "on"}">Нужно сделать · ${need}</button>
     <button data-act="stockMode" data-a="1" class="${S.stockAll ? "on" : ""}">Весь сток</button></div>`;
   if (!items.length) { view.innerHTML = html + `<div class="card">${empty("✅", "Всё есть, ничего делать не нужно")}</div>`; return; }
@@ -885,7 +885,7 @@ function renderMore() {
   if (S.me.can_bar) html += `<div class="card" style="padding:0"><h2 style="padding:12px 14px 0">Бар</h2><div class="list" style="margin:0">
     ${row("open", "tk", "🍸", "Тех. карты", "Поиск, ПФ, калькулятор батча")}
     ${row("open", "stock", "🧪", "Заготовки", "Что нужно сделать по стоку")}
-    ${row("open", "orders", "🧾", "Заказ поставщикам", "Из стока — готовые сообщения по поставщикам")}
+    ${S.me.is_owner ? row("open", "orders", "🧾", "Заказ поставщикам", "Из стока — готовые сообщения по поставщикам") : ""}
     ${row("open", "guest", "🎪", "Гостевая смена", "Заказ, сообщение и Excel")}</div></div>`;
   if (S.me.can_hours) html += `<div class="card" style="padding:0"><div class="list" style="margin:0">
     ${row("open", "myhours", "🕒", "Мои часы", "Смены по дням: с какого и до какого")}</div></div>`;
