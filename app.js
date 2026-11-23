@@ -903,14 +903,17 @@ function renderAdminData() {
 
 /** Очистка листов недель по кнопке: что выбрано — копируется в «Архив недель» и стирается. */
 ACT.aClear = () => push(renderWeeksClear);
-async function renderWeeksClear(done) {
+async function renderWeeksClear(done, tr) {
   setHead("Очистить листы недель");
   loading();
   let w;
   try { w = await api("admin_weeks_info"); } catch (e) { return fail(e); }
   const pick = new Set(w.tabs.filter(t => t.filled > 0 && !t.current).map(t => t.tab));
+  const trInfo = w.transfer;
   const draw = () => {
-    view.innerHTML = `${done ? `<div class="card soft">${done.map(x => `<div class="small">«${h(x.tab)}»: ${x.skipped ? h(x.skipped) : `стёрто ${x.cleared}, в архив — ${x.archived} строк`}</div>`).join("")}</div>` : ""}
+    view.innerHTML = `${tr ? `<div class="card soft small">${tr.error ? `⚠️ ${h(tr.error)}` : `Неделя с ${h(human(tr.monday))} перенесена из «${h(tr.from)}» в «${h(tr.to)}»: ${tr.moved} записей. Дальше пишется в «${h(tr.to)}».`}</div>` : ""}
+      ${trInfo ? `<div class="card small">🔁 Эта неделя (с ${h(human(trInfo.monday))}) — переходная, сейчас пишется в «${h(trInfo.from)}». После очистки она сама переедет в «${h(trInfo.to)}» со всеми записями${pick.has(trInfo.to) ? "" : ` — для этого отметь «${h(trInfo.to)}»`}.</div>` : ""}
+      ${done ? `<div class="card soft">${done.map(x => `<div class="small">«${h(x.tab)}»: ${x.skipped ? h(x.skipped) : `стёрто ${x.cleared}, в архив — ${x.archived} строк`}</div>`).join("")}</div>` : ""}
       <div class="card" style="padding:0"><div class="list" style="margin:0">${w.tabs.map(t => `<label class="item tap">
         <input type="checkbox" data-t="${h(t.tab)}" ${pick.has(t.tab) ? "checked" : ""} style="width:20px;height:20px;flex:none">
         <div class="grow"><div class="t">${h(t.tab)} ${t.current ? '<span class="tag warn">эта неделя</span>' : ""}</div>
@@ -928,7 +931,7 @@ async function renderWeeksClear(done) {
       const cur = w.tabs.find(t => t.current && pick.has(t.tab));
       if (!confirm(`Очистить: ${list.join(", ")}?${cur ? `\n\n«${cur.tab}» — лист этой недели, в нём текущие часы и чаевые.` : ""}\n\nПеред очисткой всё сохранится в «Архив недель».`)) return;
       $("#wcGo").disabled = true; $("#wcGo").textContent = "Очищаю…";
-      try { const r = await api("admin_weeks_clear", { tabs: list }); toast("Готово"); replaceTop(() => renderWeeksClear(r.done)); }
+      try { const r = await api("admin_weeks_clear", { tabs: list }); toast("Готово"); replaceTop(() => renderWeeksClear(r.done, r.transfer)); }
       catch (e) { toast(e.message); draw(); }
     });
   };
