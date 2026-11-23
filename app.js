@@ -870,18 +870,24 @@ ACT.wNav = ds => replaceTop(() => renderWaiterMonth(Math.min(0, Number(ds.o))));
 /** День официанта: чаевые, время (по умолчанию — из графика), «не работал». */
 async function renderWaiterDay(date) {
   setHead("Чаевые за смену", S.me.schedule_name || "");
-  let m = S.wm || (S.dash && S.dash.waiter);
-  if (m) S.wm = m;
-  if (!m) { loading(); try { m = S.wm = await api("waiter_month", { offset: 0 }); } catch (e) { return fail(e); } }
-  const today = S.me.today, byDate = {};
-  (m.days || []).forEach(x => (byDate[x.date] = x));
-  const opts = [];
-  for (let i = 0; i < 14; i++) {
-    const iso = addDaysIso(today, -i), x = byDate[iso];
-    opts.push({ iso, label: `${i === 0 ? "Сегодня, " : i === 1 ? "Вчера, " : ""}${human(iso)}${x && x.start ? ` · ${x.start}–${x.end}` : x && x.off ? " · не работал" : ""}` });
+  // этот и прошлый месяц — чтобы у каждого дня было время из графика (записать можно до начала прошлого месяца)
+  S.wmc = S.wmc || {};
+  if (!S.wmc[0] && S.dash && S.dash.waiter) S.wmc[0] = S.dash.waiter;
+  if (!S.wmc[0] || !S.wmc[-1]) {
+    loading();
+    try { [S.wmc[0], S.wmc[-1]] = await Promise.all([S.wmc[0] || api("waiter_month", { offset: 0 }), S.wmc[-1] || api("waiter_month", { offset: -1 })]); }
+    catch (e) { return fail(e); }
+  }
+  const m = S.wmc[0], today = S.me.today, byDate = {};
+  [S.wmc[-1], S.wmc[0], S.wm].forEach(x => ((x && x.days) || []).forEach(d => (byDate[d.date] = d)));
+  S.wDays = byDate;
+  const opts = [], t = dt(today), first = `${t.getMonth() === 0 ? t.getFullYear() - 1 : t.getFullYear()}-${String(t.getMonth() === 0 ? 12 : t.getMonth()).padStart(2, "0")}-01`;
+  for (let i = 0, iso = today; iso >= first; i++, iso = addDaysIso(today, -i)) {
+    const x = byDate[iso];
+    opts.push({ iso, label: `${i === 0 ? "Сегодня, " : i === 1 ? "Вчера, " : ""}${human(iso)}${x && x.off ? " · не работал" : x && x.start ? ` · ${x.start}–${x.end}` : ""}${x && x.tips ? ` · ${money(x.tips)}` : ""}` });
   }
   if (!date) {  // последний день со сменой, где чаевых ещё нет
-    const cand = (m.days || []).filter(x => x.date <= today && !x.off && x.start).reverse();
+    const cand = Object.values(byDate).filter(x => x.date <= today && !x.off && x.start).sort((a, b) => a.date < b.date ? -1 : 1).reverse();
     date = (cand.find(x => !x.tips) || cand[0] || { date: today }).date;
   }
   if (!opts.some(o => o.iso === date)) opts.push({ iso: date, label: human(date) });
@@ -905,14 +911,14 @@ async function renderWaiterDay(date) {
 async function wSend(body, msg) {
   try {
     const m = await api("waiter_save", body);
-    S.wm = m;
+    S.wm = m; S.wmc = {};
     if (S.dash && S.dash.waiter && m.month === S.dash.waiter.month) { S.dash.waiter = Object.assign(m, { prev_title: S.dash.waiter.prev_title }); LS.set("dash", S.dash); }
     try { tg && tg.HapticFeedback.notificationOccurred("success"); } catch (e) {}
     toast(msg(m)); back();
   } catch (e) { toast(e.message); }
 }
 ACT.wSave = (ds, el) => {
-  const tips = $("#wTips").value.trim(), date = $("#wDay").value, d = (S.wm && S.wm.days || []).find(x => x.date === date) || {};
+  const tips = $("#wTips").value.trim(), date = $("#wDay").value, d = (S.wDays || {})[date] || {};
   const start = timeVal("wS"), end = timeVal("wE");
   const same = d.sched_start && start === d.sched_start && end === d.sched_end;  // время как в графике — не храним
   el.disabled = true;
