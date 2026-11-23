@@ -708,12 +708,16 @@ function firstNum(v) {
   const m = /(\d+(?:[.,]\d+)?)/.exec(String(v || ""));
   return m ? parseFloat(m[1].replace(",", ".")) : null;
 }
-/** Калорийность готового блюда: ккал на 100 г × выход ÷ 100. Без выхода — как в таблице, «на 100 г». */
+/** Калорийность порции: из КБЖУ (лист «КБЖУ»), иначе из меню кухни. В меню обычно уже на порцию;
+ *  если написано «на 100 гр» — пересчитываем на выход. */
 function kcalTotal(i) {
-  const per100 = firstNum(i.calories), w = firstNum(i.weight);
-  if (per100 === null) return i.calories ? h(i.calories) : "";
-  return w ? `${Math.round(per100 * w / 100)} ккал` : `${Math.round(per100)} ккал/100 г`;
+  if (i.kbju) return `${Math.round(i.kbju.kcal)} ккал`;
+  const v = firstNum(i.calories), w = firstNum(i.weight);
+  if (v === null) return i.calories ? h(i.calories) : "";
+  if (/100/.test(String(i.calories).replace(/^\s*\d+/, ""))) return w ? `${Math.round(v * w / 100)} ккал` : `${Math.round(v)} ккал/100 г`;
+  return `${Math.round(v)} ккал`;
 }
+const g1 = v => v === null || v === undefined ? "—" : String(Math.round(v * 10) / 10).replace(".", ",");
 function kcal(v) { return kcalTotal({ calories: v }); }
 function menuItems() {
   const m = S.menu, q = norm(S.menuQ || "");
@@ -735,7 +739,7 @@ function drawMenu() {
     <div class="dish ${kitchen ? "tap" : ""}" ${kitchen ? `data-act="dish" data-k="${h(i.section + "|" + i.name)}"` : ""}>${i.photo ? `<img src="${h(photoSrc(i.photo, 240))}" alt="" width="76" height="76" decoding="async">` : (kitchen && anyPhoto ? '<div class="nophoto">🍽</div>' : "")}
       <div class="grow"><div class="row between" style="align-items:flex-start"><div class="t">${h(i.name)} ${i.new ? '<span class="tag ok">NEW</span>' : ""}</div>
       ${i.price ? `<b class="num" style="white-space:nowrap">${money(i.price)}</b>` : ""}</div>
-      ${i.weight || i.calories ? `<div class="muted small">${[h(i.weight || ""), kcalTotal(i)].filter(Boolean).join(" · ")}</div>` : ""}
+      ${i.weight || i.calories || i.kbju ? `<div class="muted small">${[h(i.weight || ""), kcalTotal(i), i.kbju ? `Б ${g1(i.kbju.p)} · Ж ${g1(i.kbju.f)} · У ${g1(i.kbju.c)}` : ""].filter(Boolean).join(" · ")}</div>` : ""}
       <div class="s clamp">${h(i.composition)}</div>
       ${alTags(i)}
     </div></div>`).join("")}</div>`; }).join("");
@@ -755,7 +759,8 @@ function renderDish(k) {
     <div class="card"><h2>Состав</h2><div>${i.composition ? linkify(i.composition, i.name) : "—"}</div>
       ${i.sauce ? `<h2 style="margin-top:12px">Соус</h2><div>${linkify(i.sauce, i.name)}</div>` : ""}</div>
     ${(i.details || []).length ? `<div class="card">${i.details.map(x => `<h2 style="margin-top:8px">${h(x.label)}</h2><div>${h(x.value)}</div>`).join("")}</div>` : ""}
-    <div class="card">${row("Выход", i.weight)}${i.calories ? `<div class="stat"><span>Калорийность</span><span class="right">${kcalTotal(i)}</span></div>` : ""}${row("Время приготовления", i.time)}${row("Аллергены / диета", i.allergens_text)}</div>
+    <div class="card">${row("Выход", i.weight || (i.kbju && i.kbju.g ? i.kbju.g + " г" : ""))}${i.calories || i.kbju ? `<div class="stat"><span>Калорийность, порция</span><span class="right">${kcalTotal(i)}</span></div>` : ""}
+      ${i.kbju ? `<div class="stat"><span>Белки · жиры · углеводы</span><span class="right num">${g1(i.kbju.p)} · ${g1(i.kbju.f)} · ${g1(i.kbju.c)} г</span></div>` : ""}${row("Время приготовления", i.time)}${row("Аллергены / диета", i.allergens_text)}</div>
     ${i.notes && i.notes.length ? `<div class="card"><h2>Пояснения</h2>${i.notes.map(n => `<p class="small" style="margin:0 0 8px">${h(n)}</p>`).join("")}</div>` : ""}`;
 }
 
