@@ -1064,11 +1064,56 @@ function drawAdminHome() {
     ${t("aCat", "closed", ADMIN_CATS.closed.icon, "Доступ закрыт", `${n("closed")} чел.`)}
     ${t("aSec", "counters", "🥃", "Счётчики", "Хайболы, шампейн шауэры")}
     ${t("aSec", "money", "💰", "Деньги", "Выплаты, зарплаты, Нетмонет")}
+    ${t("aSec", "menu", "🍽", "Меню", "Скрыть разделы и позиции")}
     ${t("aSec", "data", "⚙️", "Данные", a.bot_online ? "бот на связи" : "бот не на связи", !a.bot_online)}
   </div>`;
 }
 ACT.aCat = ds => push(() => renderAdminList(ds.c));
-ACT.aSec = ds => push(ds.c === "money" ? renderAdminMoney : ds.c === "counters" ? renderAdminCounters : renderAdminData);
+ACT.aSec = ds => push(ds.c === "money" ? renderAdminMoney : ds.c === "counters" ? renderAdminCounters : ds.c === "menu" ? renderAdminMenu : renderAdminData);
+
+// ---------- админка: что показывать в меню ----------
+/** Разделы и позиции с переключателями: выключил — у всех пропало из меню (в таблицах ничего не меняется). */
+async function renderAdminMenu() {
+  setHead("Меню", "что показывать");
+  S.am = S.am || { mode: "bar", open: new Set() };
+  if (!S.amData) loading();
+  try { S.amData = await api("admin_menu"); } catch (e) { return fail(e); }
+  drawAdminMenu();
+}
+function drawAdminMenu() {
+  const d = S.amData, mode = S.am.mode, hid = d.hidden, list = d[mode];
+  const groups = {};
+  list.forEach(i => (groups[i.section] = groups[i.section] || []).push(i));
+  let order = Object.keys(groups);
+  if (mode === "bar" && d.bar_sections.length) order = d.bar_sections.filter(x => groups[x]);
+  const sw = (kind, key, on, label) => `<label class="switch" title="${h(label)}"><input type="checkbox" data-kind="${kind}" data-key="${h(key)}" ${on ? "checked" : ""}><span></span></label>`;
+  const hiddenCount = Object.keys(hid.s).filter(k => k.startsWith(mode + "|")).length + Object.keys(hid.i).filter(k => k.startsWith(mode + "|")).length;
+  view.innerHTML = `<div class="seg"><button data-act="amMode" data-m="bar" class="${mode === "bar" ? "on" : ""}">Бар</button>
+      <button data-act="amMode" data-m="kitchen" class="${mode === "kitchen" ? "on" : ""}">Кухня</button></div>
+    <div class="muted small" style="margin:0 4px 8px">Выключил — у всех пропадает из меню. В таблицах ничего не меняется, включить обратно можно здесь же.${hiddenCount ? ` Сейчас скрыто: <b>${hiddenCount}</b>.` : ""}</div>
+    ${order.map(g => {
+      const sk = mode + "|" + g, secOn = !hid.s[sk], open = S.am.open.has(sk), items = groups[g];
+      const off = items.filter(i => hid.i[sk + "|" + i.name]).length;
+      return `<div class="card acc ${open ? "open" : ""}"><div class="acc-h" style="cursor:default">
+          <button class="grow acc-t" data-act="amSec" data-k="${h(sk)}"><b style="${secOn ? "" : "opacity:.45"}">${h(g)}</b>
+            <span class="muted small"> · ${items.length - off}/${items.length}</span><span class="acc-c"></span></button>
+          ${sw("s", sk, secOn, "Показывать раздел")}</div>
+        ${open ? `<div class="acc-b">${items.map(i => { const ik = sk + "|" + i.name, on = !hid.i[ik];
+          return `<div class="item" style="${secOn ? "" : "opacity:.45"}"><div class="grow"><div class="t" style="${on ? "" : "text-decoration:line-through;color:var(--hint)"}">${h(i.name)}</div>
+            ${i.price ? `<div class="s num">${money(i.price)}</div>` : ""}</div>${sw("i", ik, on, "Показывать позицию")}</div>`; }).join("")}</div>` : ""}</div>`;
+    }).join("")}`;
+  view.querySelectorAll(".switch input").forEach(inp => inp.addEventListener("change", async () => {
+    const kind = inp.dataset.kind, key = inp.dataset.key, hide = !inp.checked, H = () => S.amData.hidden;
+    if (hide) H()[kind][key] = 1; else delete H()[kind][key];
+    drawAdminMenu();
+    try {
+      await api("admin_menu_hide", { kind, key, hide });  // на экране уже переключено — ответ не подставляем, чтобы не затереть быстрые нажатия
+      S.menu = null; LS.set("menu", null);
+    } catch (e) { toast(e.message); if (hide) delete H()[kind][key]; else H()[kind][key] = 1; drawAdminMenu(); }
+  }));
+}
+ACT.amMode = ds => { S.am.mode = ds.m; drawAdminMenu(); };
+ACT.amSec = ds => { if (S.am.open.has(ds.k)) S.am.open.delete(ds.k); else S.am.open.add(ds.k); drawAdminMenu(); };
 
 function renderAdminList(cat) {
   const c = ADMIN_CATS[cat];
