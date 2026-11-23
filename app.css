@@ -254,3 +254,11 @@ a.gl { color: var(--link); text-decoration: underline; text-decoration-style: do
 .wdots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
 .wdots i.on { background: var(--accent); width: 14px; border-radius: 3px; }
 .wdots span { margin-left: 6px; font-size: 11px; color: var(--hint); }
+
+/* меню: разделы-аккордеон */
+.acc { padding: 0; overflow: hidden; }
+.acc-h { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; padding: 14px; text-align: left; font-size: 16px; }
+.acc-h:active { background: var(--soft); }
+.acc-c { width: 8px; height: 8px; border-right: 2px solid var(--hint); border-bottom: 2px solid var(--hint); transform: rotate(45deg); margin: -4px 4px 0 6px; transition: transform .15s; flex: none; }
+.acc.open .acc-c { transform: rotate(-135deg); margin-top: 4px; }
+.acc-b { padding: 0 14px 6px; }

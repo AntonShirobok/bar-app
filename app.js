@@ -722,28 +722,56 @@ function kcal(v) { return kcalTotal({ calories: v }); }
 function menuItems() {
   const m = S.menu, q = norm(S.menuQ || "");
   return (S.menuMode === "kitchen" ? m.kitchen.items : m.bar)
-    .filter(i => (!q || norm(i.name + " " + i.composition + " " + (i.sauce || "")).includes(q)) && ![...S.alFilter].some(c => i.allergens.includes(c)));
+    .filter(i => (!q || norm(i.name + " " + (i.name_en || "") + " " + i.composition + " " + (i.sauce || "")).includes(q)) && ![...S.alFilter].some(c => i.allergens.includes(c)));
 }
 function alTags(i) {
   const m = S.menu;
   const tags = i.allergens.map(a => `<span class="tag bad">${h(m.titles[a])}</span>`).concat((i.allergens_other || []).map(a => `<span class="tag">${h(a)}</span>`));
   return tags.length ? `<div class="tags">${tags.join(" ")}${i.checked ? "" : ' <span class="muted small">не проверено</span>'}</div>` : "";
 }
+/** Меню по разделам, разделы свёрнуты: нажал на раздел — открылся. При поиске и фильтре открыты все, где что-то нашлось. */
 function drawMenu() {
-  const items = menuItems(), box = $("#menuList"), kitchen = S.menuMode === "kitchen";
+  const items = menuItems(), box = $("#menuList"), kitchen = S.menuMode === "kitchen", m = S.menu;
   if (!items.length) { box.innerHTML = `<div class="card">${empty("🔍", "Ничего не подходит")}</div>`; return; }
   const groups = {};
   items.forEach(i => (groups[i.section || "Меню"] = groups[i.section || "Меню"] || []).push(i));
-  const order = Object.entries(groups).sort((x, y) => (/соус/i.test(x[0]) ? 1 : 0) - (/соус/i.test(y[0]) ? 1 : 0));
-  box.innerHTML = order.map(([g, list]) => { const anyPhoto = list.some(i => i.photo); return `<div class="card"><h2>${h(g)} · ${list.length}</h2>${list.map(i => `
-    <div class="dish ${kitchen ? "tap" : ""}" ${kitchen ? `data-act="dish" data-k="${h(i.section + "|" + i.name)}"` : ""}>${i.photo ? `<img src="${h(photoSrc(i.photo, 240))}" alt="" width="76" height="76" decoding="async">` : (kitchen && anyPhoto ? '<div class="nophoto">🍽</div>' : "")}
-      <div class="grow"><div class="row between" style="align-items:flex-start"><div class="t">${h(i.name)} ${i.new ? '<span class="tag ok">NEW</span>' : ""}</div>
-      ${i.price ? `<b class="num" style="white-space:nowrap">${money(i.price)}</b>` : ""}</div>
-      ${i.weight || i.calories || i.kbju ? `<div class="muted small">${[h(i.weight || ""), kcalTotal(i), i.kbju ? `Б ${g1(i.kbju.p)} · Ж ${g1(i.kbju.f)} · У ${g1(i.kbju.c)}` : ""].filter(Boolean).join(" · ")}</div>` : ""}
-      <div class="s clamp">${h(i.composition)}</div>
-      ${alTags(i)}
-    </div></div>`).join("")}</div>`; }).join("");
+  let order = Object.entries(groups).sort((x, y) => (/соус/i.test(x[0]) ? 1 : 0) - (/соус/i.test(y[0]) ? 1 : 0));
+  const meta = {};
+  if (!kitchen && m.bar_sections) {  // порядок и пояснения разделов — как в таблице меню
+    const idx = Object.fromEntries(m.bar_sections.map((x, n) => [x.name, n]));
+    m.bar_sections.forEach(x => (meta[x.name] = x));
+    order = order.sort((x, y) => (idx[x[0]] ?? 99) - (idx[y[0]] ?? 99));
+  }
+  const searching = !!(S.menuQ || "").trim() || S.alFilter.size > 0;
+  S.menuOpen = S.menuOpen || new Set();
+  box.innerHTML = order.map(([g, list]) => {
+    const key = S.menuMode + "|" + g, open = searching || S.menuOpen.has(key), x = meta[g] || {};
+    const sub = [x.note, x.volume ? `цена за ${x.volume.replace(/(\d)\s*мл/, "$1 мл")}` : ""].filter(Boolean).join(" · ");
+    const anyPhoto = list.some(i => i.photo);
+    return `<div class="card acc ${open ? "open" : ""}"><button class="acc-h" data-act="menuSec" data-k="${h(key)}">
+        <span class="grow"><b>${h(g)}</b>${sub ? `<span class="muted small"> · ${h(sub)}</span>` : ""}</span><span class="muted small num">${list.length}</span><span class="acc-c"></span></button>
+      ${open ? `<div class="acc-b">${list.map(i => menuRow(i, kitchen, anyPhoto)).join("")}</div>` : ""}</div>`;
+  }).join("");
 }
+function menuRow(i, kitchen, anyPhoto) {
+  const price = i.price ? money(i.price) : i.price_text ? h(i.price_text) + " ₽" : "";
+  const info = kitchen ? [h(i.weight || ""), kcalTotal(i), i.kbju ? `Б ${g1(i.kbju.p)} · Ж ${g1(i.kbju.f)} · У ${g1(i.kbju.c)}` : ""]
+    : [i.volume ? h(i.volume.replace(/(\d)\s*мл/, "$1 мл")) : "", i.name_en && i.name_en !== i.name ? h(i.name_en) : ""];
+  const line = info.filter(Boolean).join(" · ");
+  return `<div class="dish ${kitchen ? "tap" : ""}" ${kitchen ? `data-act="dish" data-k="${h(i.section + "|" + i.name)}"` : ""}>${i.photo ? `<img src="${h(photoSrc(i.photo, 240))}" alt="" width="76" height="76" decoding="async">` : (kitchen && anyPhoto ? '<div class="nophoto">🍽</div>' : "")}
+      <div class="grow"><div class="row between" style="align-items:flex-start"><div class="t">${h(i.name)} ${i.new ? '<span class="tag ok">NEW</span>' : ""}</div>
+      ${price ? `<b class="num" style="white-space:nowrap">${price}</b>` : ""}</div>
+      ${line ? `<div class="muted small">${line}</div>` : ""}
+      ${i.composition ? `<div class="s ${kitchen ? "clamp" : ""}">${h(i.composition)}</div>` : ""}
+      ${alTags(i)}
+    </div></div>`;
+}
+ACT.menuSec = ds => {
+  S.menuOpen = S.menuOpen || new Set();
+  if (S.menuOpen.has(ds.k)) S.menuOpen.delete(ds.k); else S.menuOpen.add(ds.k);
+  haptic();
+  drawMenu();
+};
 ACT.menuMode = ds => { S.menuMode = ds.m; renderMenu(); };
 ACT.menuAl = (ds, el) => { S.alFilter.has(ds.c) ? S.alFilter.delete(ds.c) : S.alFilter.add(ds.c); el.classList.toggle("on"); drawMenu(); };
 ACT.dish = ds => push(() => renderDish(ds.k));
