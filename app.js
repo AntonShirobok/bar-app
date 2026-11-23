@@ -617,7 +617,8 @@ async function renderStock() {
   S.stock = d;
   const items = S.stockAll ? d.items : d.items.filter(i => i.make > 0);
   const need = d.items.filter(i => i.make > 0).length;
-  let html = `<div class="seg"><button data-act="stockMode" data-a="0" class="${S.stockAll ? "" : "on"}">Нужно сделать · ${need}</button>
+  let html = `${S.me.is_owner ? '<button class="btn ghost" data-act="open" data-s="orders" style="margin:0 0 10px">🧾 Собрать заказ поставщикам</button>' : ""}
+    <div class="seg"><button data-act="stockMode" data-a="0" class="${S.stockAll ? "" : "on"}">Нужно сделать · ${need}</button>
     <button data-act="stockMode" data-a="1" class="${S.stockAll ? "on" : ""}">Весь сток</button></div>`;
   if (!items.length) { view.innerHTML = html + `<div class="card">${empty("✅", "Всё есть, ничего делать не нужно")}</div>`; return; }
   const groups = {};
@@ -680,6 +681,90 @@ ACT.stockLink = async ds => {
     if (res.link && i && top && top !== renderStock) { S.stack[S.stack.length - 1] = () => renderRecipe(res.link, stockCalc(i, byId(res.link))); }
     backBtn(); (S.stack[S.stack.length - 1] || (() => go(S.tab)))();
   } catch (e) { toast(e.message); }
+};
+
+// ================= ЗАКАЗ ПОСТАВЩИКАМ =================
+/** Количество для глаз: 60000 гр → 60 кг, 1500 мл → 1,5 л. */
+function fmtNeed(v, u) {
+  if (u === "гр" && v >= 1000) return `${fmt(v / 1000)} кг`;
+  if (u === "мл" && v >= 1000) return `${fmt(v / 1000)} л`;
+  return `${fmt(v)} ${u}`;
+}
+async function renderOrders() {
+  setHead("Заказ поставщикам", "по стоку");
+  loading();
+  let d;
+  try { d = await api("orders"); } catch (e) { return fail(e); }
+  S.ord = d;
+  S.ordQty = {};
+  d.suppliers.forEach((s, si) => s.lines.forEach((l, li) => (S.ordQty[si + ":" + li] = l.packs === null ? 0 : l.packs)));
+  drawOrders();
+}
+function orderText(si) {
+  const s = S.ord.suppliers[si], date = human(addDaysIso(S.ord.date, 1));
+  const lines = s.lines.map((l, li) => {
+    const q = Number(S.ordQty[si + ":" + li] || 0);
+    if (!q) return null;
+    return l.pack === 1 && l.pack_unit ? `— ${l.name} — ${fmt(q)} ${l.pack_unit}` : `— ${l.name} × ${fmt(q)}`;
+  }).filter(Boolean);
+  if (!lines.length) return "";
+  return `${s.greet || "Здравствуйте! Заказ для бара Bus"}\n${lines.join("\n")}\n\nНа ${date}. Спасибо!`;
+}
+function drawOrders() {
+  const d = S.ord;
+  let html = "";
+  if (!d.configured) {
+    html += `<div class="card"><h2>Поставщики ещё не заведены</h2><div class="small">В таблице приложения нужны два листа:
+      <b>«Поставщики»</b> (поставщик · контакт · приветствие) и <b>«Закупка»</b> (что · поставщик · у поставщика · фасовка · ед.).
+      «Что» — название из стока или ингредиент из ТК. Поставщик «свой» — не заказываем (вода и т. п.).</div>
+      ${S.me.is_owner ? '<button class="btn" data-act="ordExample">Создать пример с вымышленными поставщиками</button>' : '<div class="muted small" style="margin-top:6px">Завести их может владелец.</div>'}</div>`;
+  } else if (d.example) {
+    html += `<div class="card soft small">🧪 Сейчас в таблице <b>пример</b> с вымышленными поставщиками («ПРИМЕР · …»). Замени их своими в листах «Поставщики» и «Закупка».</div>`;
+  }
+  if (!d.suppliers.length && d.configured) html += `<div class="card">${empty("✅", "Заказывать нечего: по стоку всё есть или поставщики не назначены")}</div>`;
+  d.suppliers.forEach((s, si) => {
+    const tgUser = /^@[\w\d_]{4,}$/.test(s.contact) ? s.contact.slice(1) : "";
+    html += `<div class="card"><div class="row between"><h2 style="margin:0">${h(s.name)}</h2><span class="muted small">${h(s.contact || "")}</span></div>
+      <div class="list" style="margin-top:6px">${s.lines.map((l, li) => `<div class="item"><div class="grow"><div class="t">${h(l.name)}</div>
+        <div class="s">нужно ${fmtNeed(l.need, l.unit)}${l.pack !== 1 || !l.pack_unit ? ` · фасовка ${fmt(l.pack)} ${h(l.pack_unit || "")}` : ""} · ${h(l.src.join(", "))}</div>
+        ${l.mismatch ? '<div class="small" style="color:var(--warn)">единицы в «Закупке» не сходятся с ТК — проверь количество</div>' : ""}</div>
+        <input class="f num" style="max-width:78px" type="number" inputmode="decimal" min="0" step="any" value="${S.ordQty[si + ":" + li]}" data-q="${si}:${li}">
+        <span class="muted small" style="min-width:28px">${h(l.pack === 1 && l.pack_unit ? l.pack_unit : "уп.")}</span></div>`).join("")}</div>
+      <div class="btns" style="margin-top:8px;flex-wrap:wrap"><button class="btn sm" data-act="ordCopy" data-i="${si}">Скопировать</button>
+        <button class="btn sm ghost" data-act="ordShare" data-i="${si}">Отправить в Telegram</button>
+        ${tgUser ? `<button class="btn sm ghost" data-act="link" data-url="https://t.me/${h(tgUser)}">Чат ${h(s.contact)}</button>` : ""}</div></div>`;
+  });
+  if (d.unknown.length) {
+    html += `<div class="card"><h2>Нет поставщика · ${d.unknown.length}</h2><div class="muted small" style="margin-bottom:6px">Впиши их в лист «Закупка» — появятся у нужного поставщика.
+      Заготовка из стока без привязки к ТК заказывается целиком — привяжи ТК в «Заготовках», и она разложится на ингредиенты.</div>
+      <div class="list">${d.unknown.map(u => `<div class="item"><div class="grow"><div class="t">${h(u.name)}${u.stock ? ' <span class="tag">из стока</span>' : ""}</div>
+        <div class="s">нужно ${fmtNeed(u.need, u.unit)}${u.stock ? "" : ` · для ${h(u.src.join(", "))}`}</div></div></div>`).join("")}</div></div>`;
+  }
+  if (d.own.length) html += `<div class="muted small" style="margin:0 4px 10px">Не заказываем («свой»): ${h(d.own.join(", "))}</div>`;
+  view.innerHTML = html;
+  view.querySelectorAll("input[data-q]").forEach(inp => inp.addEventListener("input", () => { S.ordQty[inp.dataset.q] = inp.value; }));
+}
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch (e) {
+    const ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand("copy"); ta.remove(); return ok;
+  }
+}
+ACT.ordCopy = async ds => {
+  const t = orderText(Number(ds.i));
+  if (!t) return toast("Все количества — ноль");
+  toast((await copyText(t)) ? "Заказ скопирован — вставь в чат поставщику" : "Не получилось скопировать");
+};
+ACT.ordShare = ds => {
+  const t = orderText(Number(ds.i));
+  if (!t) return toast("Все количества — ноль");
+  const url = "https://t.me/share/url?url=" + encodeURIComponent(" ") + "&text=" + encodeURIComponent(t);
+  if (tg && tg.openTelegramLink) tg.openTelegramLink(url); else window.open(url);
+};
+ACT.ordExample = async (ds, el) => {
+  el.disabled = true;
+  try { const r = await api("admin_orders_example"); toast(`Пример создан: ${r.suppliers} поставщика, ${r.rows} строк`); renderOrders(); }
+  catch (e) { toast(e.message); el.disabled = false; }
 };
 
 // ================= МЕНЮ =================
@@ -800,6 +885,7 @@ function renderMore() {
   if (S.me.can_bar) html += `<div class="card" style="padding:0"><h2 style="padding:12px 14px 0">Бар</h2><div class="list" style="margin:0">
     ${row("open", "tk", "🍸", "Тех. карты", "Поиск, ПФ, калькулятор батча")}
     ${row("open", "stock", "🧪", "Заготовки", "Что нужно сделать по стоку")}
+    ${S.me.is_owner ? row("open", "orders", "🧾", "Заказ поставщикам", "Из стока — готовые сообщения по поставщикам") : ""}
     ${row("open", "guest", "🎪", "Гостевая смена", "Заказ, сообщение и Excel")}</div></div>`;
   if (S.me.can_hours) html += `<div class="card" style="padding:0"><div class="list" style="margin:0">
     ${row("open", "myhours", "🕒", "Мои часы", "Смены по дням: с какого и до какого")}</div></div>`;
@@ -821,7 +907,7 @@ ACT.theme = ds => {
   applyTheme(THEME, true);
   renderMore();
 };
-ACT.open = ds => push({ waiter: () => renderWaiterMonth(0), myhours: renderMyHours, bar: renderBar, tk: renderTK, stock: renderStock, allergens: renderAllergens, guest: renderGuest, admin: renderAdmin, profile: renderProfile }[ds.s]);
+ACT.open = ds => push({ orders: renderOrders, waiter: () => renderWaiterMonth(0), myhours: renderMyHours, bar: renderBar, tk: renderTK, stock: renderStock, allergens: renderAllergens, guest: renderGuest, admin: renderAdmin, profile: renderProfile }[ds.s]);
 
 // ---------- официант: месяц, день ----------
 /** Карточка на главной: сколько заработал за месяц — ставка за часы и свои чаевые. */
