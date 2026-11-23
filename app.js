@@ -1153,15 +1153,23 @@ function renderAdminMoney() {
     <div class="item tap chev" data-act="aOpen" data-s="salary"><div class="t">Зарплата всех за месяц</div></div>
     <div class="item tap chev" data-act="aRates"><div class="t">Ставка за час по ролям</div></div></div></div>
     <div class="card"><label class="l" style="margin-top:0">Нетмонет</label>
-    <select class="f" id="aNmWeek"><option value="">Эта неделя (с ${h(human(a.week.monday))}) · «${h(a.week.tab)}»</option></select>
+    <select class="f" id="aNmWeek">${nmOptions(LS.get("nmWeeks")) || `<option value="">Эта неделя · «${h(a.week.tab)}»</option><option disabled>загружаю прошлые недели…</option>`}</select>
     <div class="row" style="margin-top:8px"><input class="f num" id="aNm" type="number" inputmode="decimal" placeholder="9080"><button class="btn sm" data-act="aNm">Записать</button></div>
     <div class="muted small" style="margin-top:8px">Можно за эту неделю или за прошлые, пока их лист не занят новой неделей. Лист для этой недели выбирается сам; исправить — в «Данных».</div></div>`;
-  api("admin_netmonet_weeks").then(r => {  // прошлые недели и что уже вписано
+  api("admin_netmonet_weeks").then(r => {  // прошлые недели и что уже вписано; запоминаем — в следующий раз список сразу полный
+    LS.set("nmWeeks", r.weeks);
     const sel = $("#aNmWeek");
     if (!sel) return;
-    const dm = iso => `${+iso.slice(8, 10)}.${iso.slice(5, 7)}`;
-    sel.innerHTML = r.weeks.map((w, n) => `<option value="${n ? w.monday : ""}">${n === 0 ? "Эта неделя · " : n === 1 ? "Прошлая · " : ""}${dm(w.monday)}–${dm(addDaysIso(w.monday, 6))} · ${h(w.tab)}${w.value ? ` · ${h(w.value)}` : ""}</option>`).join("");
-  }).catch(() => {});
+    const keep = sel.value;
+    sel.innerHTML = nmOptions(r.weeks);
+    sel.value = keep;
+    if (sel.selectedIndex < 0) sel.selectedIndex = 0;
+  }).catch(() => { const sel = $("#aNmWeek"); if (sel && sel.options[1] && sel.options[1].disabled) sel.options[1].remove(); });
+}
+function nmOptions(weeks) {
+  if (!weeks || !weeks.length) return "";
+  const dm = iso => `${+iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+  return weeks.map((w, n) => `<option value="${n ? w.monday : ""}">${n === 0 ? "Эта неделя · " : n === 1 ? "Прошлая · " : ""}${dm(w.monday)}–${dm(addDaysIso(w.monday, 6))} · ${h(w.tab)}${w.value ? ` · ${h(w.value)}` : ""}</option>`).join("");
 }
 function renderAdminData() {
   setHead("Данные");
