@@ -1,5 +1,6 @@
 /* Бар · Mini App. Без сборки и зависимостей: один файл, экраны рисуются строками. */
 "use strict";
+const APP_VER = (document.currentScript && (document.currentScript.src.split("v=")[1] || "")) || "dev";  // номер из index.html — видно, свежая ли копия
 
 const tg = window.Telegram ? window.Telegram.WebApp : null;
 if (tg) { tg.ready(); tg.expand(); document.documentElement.dataset.tg = "1"; }
@@ -746,7 +747,7 @@ function renderMore() {
     ${S.me.is_owner ? row("open", "admin", "🔐", "Админ", "Сотрудники, роли, зарплаты, Нетмонет") : ""}</div></div>
     <div class="card"><h2>Тема</h2><div class="seg theme">${[["auto", "Как в Telegram"], ["light", "Светлая"], ["dark", "Тёмная"]]
       .map(([k, t]) => `<button data-act="theme" data-t="${k}" class="${THEME === k ? "on" : ""}">${t}</button>`).join("")}</div></div>
-    <div class="muted small" style="text-align:center;margin-top:14px">Данные из Google Таблиц обновляются раз в 10 минут</div>`;
+    <div class="muted small" style="text-align:center;margin-top:14px">Данные из Google Таблиц обновляются раз в 10 минут<br>версия ${APP_VER}</div>`;
   view.innerHTML = html;
 }
 ACT.theme = ds => {
