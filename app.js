@@ -188,6 +188,7 @@ function drawHome(d) {
 
   // 2б. официант: свой месяц — ставка × часы и свои чаевые
   if (d.waiter) html += waiterCard(d.waiter);
+  if (d.waiter_weeks && d.waiter_weeks.length) html += waiterWeeksHtml(d.waiter_weeks);
 
   // 3. неделя: к выдаче и столбики по дням
   if (d.week && d.week.me && S.me.can_hours) {
@@ -341,9 +342,8 @@ function weekCarouselHtml(cur) {
   return `<div class="wcar" id="wcar">${slides.map(weekSlide).join("")}</div><div class="wdots" id="wdots">${weekDots(0)}</div>`;
 }
 /** Встать на текущую неделю, следить за листанием, подгрузить прошлые недели. */
-function initWeekCarousel() {
-  const car = $("#wcar");
-  if (!car) return;
+/** Карусель недель: встать на текущую (справа), при листании — переключать точки. */
+function bindCarousel(car) {
   S.homeWeek = 0;
   car.scrollLeft = car.scrollWidth;
   let t = null;
@@ -354,6 +354,12 @@ function initWeekCarousel() {
       if (off !== S.homeWeek) { S.homeWeek = off; haptic(); const d = $("#wdots"); if (d) d.innerHTML = weekDots(off); }
     }, 60);
   }, { passive: true });
+}
+function initWeekCarousel() {
+  const car = $("#wcar");
+  if (!car) return;
+  bindCarousel(car);
+  if (car.dataset.kind === "waiter") return;  // недели официанта уже пришли с главной
   if (S.wkPrevT && Date.now() - S.wkPrevT < 60000) return;  // главная рисуется дважды (кэш и свежая) — второй раз не грузим
   S.wkPrevT = Date.now();
   api("weeks_recent", { n: WEEKS_BACK }).then(r => {
@@ -365,6 +371,26 @@ function initWeekCarousel() {
 }
 function weekSlideInner(x) { const d = document.createElement("div"); d.innerHTML = weekSlide(x); return d.firstElementChild.innerHTML; }
 ACT.weekSlide = ds => { S.money.week = Number(ds.o); push(renderWeekDetail); };
+
+// ---------- неделя официанта на главной: та же карусель, столбики — часы, сверху — заработано за неделю ----------
+function waiterWeekSlide(w) {
+  const today = S.me.today, max = Math.max(10, ...w.days.map(x => x.hours));
+  const title = weekTitle(w, w.off);
+  return `<div class="card tapcard wslide" data-act="wWeek" data-o="${w.off}">
+    <div class="row between small muted"><span>${h(title)} · заработано</span><span>${hrs(w.hours)} ч · чаевые ${money(w.tips)}</span></div>
+    <div class="num" style="font-size:22px;font-weight:700;margin:2px 0 10px">${money(w.total)}</div>
+    <div class="wbars">${w.days.map(x => `<div class="${x.date === today ? "on" : ""}"><i class="${x.hours ? "f" : ""}" style="height:${x.hours ? Math.max(18, x.hours / max * 100) : 14}%"></i>
+      <small>${WD[dt(x.date).getDay()].toLowerCase()}${x.hours ? " " + hrs(x.hours) : ""}</small></div>`).join("")}</div></div>`;
+}
+function waiterWeeksHtml(weeks) {
+  const list = weeks.slice(0, WEEKS_BACK + 1).reverse();  // слева прошлые, справа текущая
+  return `<div class="wcar" id="wcar" data-kind="waiter">${list.map(waiterWeekSlide).join("")}</div><div class="wdots" id="wdots">${weekDots(0)}</div>`;
+}
+ACT.wWeek = ds => {  // неделя → экран месяца, где эта неделя
+  const w = (S.dash && S.dash.waiter_weeks || []).find(x => x.off === Number(ds.o));
+  const t = dt(S.me.today), m = w ? dt(w.days[6].date > S.me.today ? S.me.today : w.days[6].date) : t;
+  push(() => renderWaiterMonth((m.getFullYear() - t.getFullYear()) * 12 + m.getMonth() - t.getMonth()));
+};
 ACT.hoursForm = () => push(renderHoursForm);
 ACT.hoursDel = async ds => {
   if (!(await confirmBox(`Удалить часы за ${human(ds.date)}?`))) return;
