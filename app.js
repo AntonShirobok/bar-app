@@ -1472,7 +1472,7 @@ function renderBar() {
 }
 function drawBar(p) {
   S.bar = p;
-  const me = p.me;
+  const me = p.me, bb = p.busbro || { bros: [], incoming: [], outgoing: [] };
   let html = `<div class="card hero">${countersHtml(p)}</div>`;
   if (me && me.in) {
     html += `<div class="card"><div class="row between"><div><b>Ты в баре</b> с ${h(me.time)}${me.anon ? ' <span class="tag">невидимка</span>' : ""}</div></div>
@@ -1483,19 +1483,69 @@ function drawBar(p) {
       <button class="btn ghost" data-act="checkin" data-anon="1">👻 Отметиться невидимкой</button>
       <div class="muted small" style="margin-top:6px">Невидимку видно только в общем числе гостей. Отметки сбрасываются к утру.</div></div>`;
   }
+  if (bb.incoming.length) {
+    html += `<div class="card"><h2>Зовут в BusBro</h2><div class="list">${bb.incoming.map(x => `<div class="item"><div class="ava">${h(initials(x.name))}</div>
+      <div class="grow t">${h(x.name)}</div>
+      <button class="btn sm" data-act="broAnswer" data-h="${h(x.h)}" data-y="1">Принять</button>
+      <button class="btn sm ghost" data-act="broAnswer" data-h="${h(x.h)}" data-y="0">Не сейчас</button></div>`).join("")}</div></div>`;
+  }
+  const broTag = { active: '<span class="tag ok">BusBro</span>', out: '<span class="tag">позвал</span>', in: '<span class="tag warn">зовёт</span>' };
   html += `<div class="card"><h2>Сейчас в баре · ${p.total}</h2>`;
   if (!p.here.length && !p.anon) html += `<div class="muted small">Пока никто не отметился</div>`;
-  else html += `<div class="list">${p.here.map(x => `<div class="item${x.me ? " meitem" : ""}"><div class="ava">${h(initials(x.name))}</div>
-      <div class="grow t">${h(x.name)}</div><div class="muted small num">с ${h(x.time)}</div></div>`).join("")}
+  else html += `<div class="list">${p.here.map(x => {
+      const tap = x.key ? ` tap" data-act="broTap" data-k="${h(x.key)}" data-n="${h(x.name)}" data-s="${h(x.bro || "")}" data-h="${h(x.h || "")}` : "";
+      return `<div class="item${x.me ? " meitem" : ""}${tap}"><div class="ava">${h(initials(x.name))}</div>
+      <div class="grow t">${h(x.name)}</div>${broTag[x.bro] || ""}<div class="muted small num">с ${h(x.time)}</div></div>`;
+    }).join("")}
       ${p.anon ? `<div class="item muted">👻 и ещё ${p.anon} инкогнито</div>` : ""}</div>`;
-  view.innerHTML = html + `</div>`;
+  html += `</div>`;
+  if (p.busbro) html += busbroCard(bb);
+  view.innerHTML = html;
 }
-async function barAction(action, params, el) {
+/** «Мои BusBro»: друзья по бару, уведомления о них и отправленные приглашения. */
+function busbroCard(bb) {
+  let html = `<div class="card"><h2>Мои BusBro${bb.bros.length ? " · " + bb.bros.length : ""}</h2>`;
+  if (!bb.bros.length && !bb.outgoing.length) {
+    return html + `<div class="muted small">Нажми на человека в «Сейчас в баре», чтобы позвать в BusBro. Когда кто-то из вас отмечается в Bus (не невидимкой), бот пишет второму. Ник и профиль Telegram никто не видит.</div></div>`;
+  } else {
+    html += `<div class="list">${bb.bros.map(x => `<div class="item"><div class="ava">${h(initials(x.name))}</div>
+      <div class="grow t">${h(x.name)}${x.mute ? ' <span class="tag">без уведомлений</span>' : ""}</div>
+      <button class="btn sm ghost" data-act="broMute" data-h="${h(x.h)}" data-m="${x.mute ? 0 : 1}" aria-label="${x.mute ? "Включить уведомления" : "Выключить уведомления"}">${x.mute ? "🔕" : "🔔"}</button>
+      <button class="btn sm ghost" data-act="broRemove" data-h="${h(x.h)}" data-n="${h(x.name)}" aria-label="Убрать из BusBro">✕</button></div>`).join("")}
+      ${bb.outgoing.map(x => `<div class="item"><div class="ava">${h(initials(x.name))}</div>
+      <div class="grow"><div class="t">${h(x.name)}</div><div class="s">ждём ответа</div></div>
+      <button class="btn sm ghost" data-act="broRemove" data-h="${h(x.h)}" data-n="${h(x.name)}" data-out="1">Отозвать</button></div>`).join("")}</div>`;
+  }
+  html += `<div class="muted small" style="margin-top:8px">Бот пишет BusBro, когда ты отмечаешься не невидимкой, — каждому не чаще раза за вечер. Ник и профиль Telegram никто не видит.</div></div>`;
+  return html;
+}
+async function barAction(action, params, el, done) {
   if (el) el.disabled = true;
-  try { const p = await api(action, params); LS.set("bar", p); haptic("medium"); drawBar(p); }
+  try { const p = await api(action, params); LS.set("bar", p); haptic("medium"); drawBar(p); if (done) toast(done); }
   catch (e) { toast(e.message); if (el) el.disabled = false; }
 }
 ACT.checkin = (ds, el) => barAction("checkin", { anon: ds.anon === "1" }, el);
+ACT.broTap = async (ds, el) => {
+  if (ds.s === "active") return toast(`${ds.n} — твой BusBro`);
+  if (ds.s === "out") return toast("Позвал — ждём ответа");
+  if (ds.s === "in") {
+    if (await confirmBox(`${ds.n} зовёт тебя в BusBro. Принять?`)) barAction("busbro_answer", { h: ds.h, yes: true }, el, "Теперь вы BusBro 🤝");
+    return;
+  }
+  const me = S.bar && S.bar.me;
+  if (!(me && me.in)) return toast("Позвать в BusBro можно, когда ты в баре — сначала отметься");
+  if (me.anon) return toast("Невидимка никого не зовёт — сначала нажми «Показать меня»");
+  if (await confirmBox(`Позвать ${ds.n} в BusBro? Когда кто-то из вас отметится в Bus, бот напишет второму. Ник и профиль Telegram никто не увидит.`)) {
+    barAction("busbro_invite", { key: ds.k }, el, "Позвал — бот передаст приглашение");
+  }
+};
+ACT.broAnswer = (ds, el) => barAction("busbro_answer", { h: ds.h, yes: ds.y === "1" }, el, ds.y === "1" ? "Теперь вы BusBro 🤝" : "");
+ACT.broMute = (ds, el) => barAction("busbro_mute", { h: ds.h, mute: ds.m === "1" }, el, ds.m === "1" ? "Уведомления выключены" : "Уведомления включены");
+ACT.broRemove = async (ds, el) => {
+  const q = ds.out ? `Отозвать приглашение для ${ds.n}? Позвать снова можно будет через месяц после первого приглашения.`
+    : `Убрать ${ds.n} из BusBro? Уведомлений друг о друге больше не будет. Бот никому не напишет.`;
+  if (await confirmBox(q)) barAction("busbro_remove", { h: ds.h }, el);
+};
 ACT.checkout = async (ds, el) => { if (await confirmBox("Отметить, что ты ушёл?")) barAction("checkout", {}, el); };
 
 function renderAdminCounters() {
@@ -1539,7 +1589,9 @@ function startUI() {
     return;
   }
   setTabs(["home", "schedule", "menu", "more"]);
-  const start = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || "home";
+  // кнопка в сообщении бота открывает приложение с ?tab=bar (уведомления BusBro)
+  const start = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || new URLSearchParams(location.search).get("tab") || "home";
+  if (start === "bar") { go("home"); push(renderBar); return; }
   go(["home", "schedule", "menu", "more"].includes(start) ? start : "home");
 }
 
