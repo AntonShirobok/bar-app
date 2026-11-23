@@ -885,6 +885,8 @@ function renderAdminData() {
   const a = S.adm;
   view.innerHTML = `<div class="card"><button class="btn ghost" data-act="aRefresh">🔄 Перечитать таблицы сейчас</button>
     <button class="btn ghost" data-act="aAllergen">🧾 Дописать аллергены из ТК в таблицу</button></div>
+    <div class="card tapcard row between" data-act="aClear"><div><div class="t">🧹 Очистить листы недель</div>
+      <div class="muted small">Перед новым месяцем: стирает часы и чаевые, сначала копирует в архив</div></div><span class="chev"></span></div>
     <div class="card"><label class="l" style="margin-top:0">Лист для этой недели (с ${h(human(a.week.monday))})</label>
     <select class="f" id="aWeek">${a.week.tabs.map(t => `<option ${t === a.week.tab ? "selected" : ""}>${h(t)}</option>`).join("") || `<option>${h(a.week.tab)}</option>`}</select>
     <div class="muted small" style="margin-top:6px">Выбирается сам: следующий после прошлой недели. Меняй, только если программа ошиблась — сюда пойдут все часы и чаевые этой недели. Посмотреть другие недели — «Деньги» → «Неделя».</div></div>
@@ -897,6 +899,40 @@ function renderAdminData() {
     try { await api("admin_week", { tab: t }); a.week.tab = t; toast("Лист недели изменён"); }
     catch (er) { e.target.value = a.week.tab; toast(er.message); }
   });
+}
+
+/** Очистка листов недель по кнопке: что выбрано — копируется в «Архив недель» и стирается. */
+ACT.aClear = () => push(renderWeeksClear);
+async function renderWeeksClear(done) {
+  setHead("Очистить листы недель");
+  loading();
+  let w;
+  try { w = await api("admin_weeks_info"); } catch (e) { return fail(e); }
+  const pick = new Set(w.tabs.filter(t => t.filled > 0 && !t.current).map(t => t.tab));
+  const draw = () => {
+    view.innerHTML = `${done ? `<div class="card soft">${done.map(x => `<div class="small">«${h(x.tab)}»: ${x.skipped ? h(x.skipped) : `стёрто ${x.cleared}, в архив — ${x.archived} строк`}</div>`).join("")}</div>` : ""}
+      <div class="card" style="padding:0"><div class="list" style="margin:0">${w.tabs.map(t => `<label class="item tap">
+        <input type="checkbox" data-t="${h(t.tab)}" ${pick.has(t.tab) ? "checked" : ""} style="width:20px;height:20px;flex:none">
+        <div class="grow"><div class="t">${h(t.tab)} ${t.current ? '<span class="tag warn">эта неделя</span>' : ""}</div>
+        <div class="s">${t.monday ? `неделя с ${h(human(t.monday))} · ` : ""}${t.filled ? `заполнено ячеек: ${t.filled}` : "пустой"}</div></div></label>`).join("")}</div></div>
+      <button class="btn danger" id="wcGo" ${pick.size ? "" : "disabled"}>Очистить выбранные · ${pick.size}</button>
+      <div class="muted small" style="margin-top:8px">Стираются часы по дням, «Чаевые бар/зал», «Взял» и Нетмонет. Имена, проценты и формулы остаются.
+        Перед очисткой всё копируется в лист «Архив недель» в таблице приложения — чаевые прошлых недель в приложении не пропадут.
+        Сначала закрепи месяц из «ТабельБот»: он считает часы по листам недель.</div>`;
+    view.querySelectorAll("input[type=checkbox]").forEach(cb => cb.addEventListener("change", () => {
+      if (cb.checked) pick.add(cb.dataset.t); else pick.delete(cb.dataset.t);
+      draw();
+    }));
+    $("#wcGo").addEventListener("click", async () => {
+      const list = [...pick];
+      const cur = w.tabs.find(t => t.current && pick.has(t.tab));
+      if (!confirm(`Очистить: ${list.join(", ")}?${cur ? `\n\n«${cur.tab}» — лист этой недели, в нём текущие часы и чаевые.` : ""}\n\nПеред очисткой всё сохранится в «Архив недель».`)) return;
+      $("#wcGo").disabled = true; $("#wcGo").textContent = "Очищаю…";
+      try { const r = await api("admin_weeks_clear", { tabs: list }); toast("Готово"); replaceTop(() => renderWeeksClear(r.done)); }
+      catch (e) { toast(e.message); draw(); }
+    });
+  };
+  draw();
 }
 
 /** Открыть / закрыть доступ: на экране сразу, запрос — в фоне. */
