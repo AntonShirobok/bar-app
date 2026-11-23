@@ -246,9 +246,11 @@ a.gl { color: var(--link); text-decoration: underline; text-decoration-style: do
 .qa { display: flex; flex-direction: column; gap: 2px; margin: 0 0 10px; }
 .qa-ic { font-size: 20px; }
 .qa small { font-size: 12px; }
-.swipew { transition: transform .18s ease-out; touch-action: pan-y; }
-.swipew.loadingw { opacity: .6; }
-.wdots { display: flex; align-items: center; gap: 5px; margin-top: 8px; }
+.wcar { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  margin: 0 -12px; padding: 0 12px; scroll-padding: 0 12px; gap: 12px; overscroll-behavior-x: contain; }
+.wcar::-webkit-scrollbar { display: none; }
+.wslide { flex: 0 0 100%; scroll-snap-align: start; scroll-snap-stop: always; margin: 0; min-width: 0; }
+.wdots { display: flex; align-items: center; gap: 5px; margin: 8px 4px 10px; }
 .wdots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
 .wdots i.on { background: var(--accent); width: 14px; border-radius: 3px; }
 .wdots span { margin-left: 6px; font-size: 11px; color: var(--hint); }

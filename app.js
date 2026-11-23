@@ -187,8 +187,7 @@ function drawHome(d) {
 
   // 3. неделя: к выдаче и столбики по дням
   if (d.week && d.week.me && S.me.can_hours) {
-    S.homeWeek = 0; S.money.week = 0;
-    html += `<div class="card tapcard swipew" id="homeWeek" data-act="weekDetail">${homeWeekHtml(d.week, 0)}</div>`;
+    html += weekCarouselHtml(d.week);
   } else if (!S.me.tips_name) {
     html += `<div class="card muted small">Деньги появятся, когда владелец свяжет тебя с таблицей чаевых.</div>`;
   }
@@ -216,8 +215,7 @@ function drawHome(d) {
   }
   if (d.errors && d.errors.length) html += `<div class="muted small" style="text-align:center">Не всё загрузилось: ${h(d.errors.join("; "))}</div>`;
   view.innerHTML = html;
-  const wc = $("#homeWeek");
-  if (wc) bindWeekSwipe(wc);
+  initWeekCarousel();
 }
 function addDaysIso(iso, n) { const x = dt(iso); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; }
 ACT.openStock = () => push(renderStock);
@@ -302,10 +300,12 @@ function weekCard(w) {
 }
 ACT.week = ds => { S.money.week = Math.min(0, S.money.week + Number(ds.d)); renderWeekDetail(); };
 
-// ---------- неделя на главной: свайп влево/вправо листает недели, тап — подробности ----------
+// ---------- неделя на главной: карусель — текущая справа, 4 прошлых подгружены заранее; тап — подробности ----------
+const WEEKS_BACK = 4;
 function weekTitle(w, off) {
   if (off === 0) return "Эта неделя";
   if (off === -1) return "Прошлая неделя";
+  if (!w || !w.monday) return "Неделя";
   const m = dt(w.monday), e = new Date(m); e.setDate(e.getDate() + 6);
   return `${m.getDate()} ${MGEN[m.getMonth()].slice(0, 3)} – ${e.getDate()} ${MGEN[e.getMonth()].slice(0, 3)}`;
 }
@@ -316,46 +316,50 @@ function homeWeekHtml(w, off) {
   return `<div class="row between small muted"><span>${h(weekTitle(w, off))} · к выдаче</span><span>${hrs(total)} ч${me.took ? ` · взял ${h(me.took)}` : ""}</span></div>
     <div class="num" style="font-size:22px;font-weight:700;margin:2px 0 10px">${h(me.pay || "—")}</div>
     <div class="wbars">${w.days.map((x, i) => `<div class="${x.date === today ? "on" : ""}"><i class="${hh[i] ? "f" : ""}" style="height:${hh[i] ? Math.max(18, hh[i] / max * 100) : 14}%"></i>
-      <small>${WD[dt(x.date).getDay()].toLowerCase()}${hh[i] ? " " + hrs(hh[i]) : ""}</small></div>`).join("")}</div>
-    ${weekDots(off)}`;
+      <small>${WD[dt(x.date).getDay()].toLowerCase()}${hh[i] ? " " + hrs(hh[i]) : ""}</small></div>`).join("")}</div>`;
+}
+function weekSlide(x) {
+  const body = x.w ? homeWeekHtml(x.w, x.off)
+    : `<div class="small muted">${x.off === -1 ? "Прошлая неделя" : "Неделя"}</div><div class="muted small" style="margin:12px 0">${x.error ? h(x.error) : "Загружаю…"}</div>`;
+  return `<div class="card tapcard wslide" data-act="weekSlide" data-o="${x.off}">${body}</div>`;
 }
 function weekDots(off) {
-  return `<div class="wdots">${[-3, -2, -1, 0].map(o => `<i class="${o === off ? "on" : ""}"></i>`).join("")}<span>${off < 0 ? "свайп влево — к этой неделе" : "свайп вправо — прошлые недели"}</span></div>`;
+  const all = [];
+  for (let o = -WEEKS_BACK; o <= 0; o++) all.push(`<i class="${o === off ? "on" : ""}"></i>`);
+  return `${all.join("")}<span>${off < 0 ? "← к этой неделе" : "свайп → прошлые недели"}</span>`;
 }
-/** Подключить свайп к карточке недели на главной. */
-function bindWeekSwipe(card) {
-  let x0 = null, y0 = 0, moved = false;
-  card.addEventListener("touchstart", e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; moved = false; }, { passive: true });
-  card.addEventListener("touchmove", e => {
-    if (x0 === null) return;
-    const dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
-    if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) { moved = true; card.style.transform = `translateX(${Math.max(-60, Math.min(60, dx / 3))}px)`; }
+function weekCarouselHtml(cur) {
+  const prev = LS.get("wkPrev") || [];
+  const slides = [];
+  for (let o = -WEEKS_BACK; o < 0; o++) slides.push(prev.find(x => x.off === o) || { off: o });
+  slides.push({ off: 0, w: cur });
+  return `<div class="wcar" id="wcar">${slides.map(weekSlide).join("")}</div><div class="wdots" id="wdots">${weekDots(0)}</div>`;
+}
+/** Встать на текущую неделю, следить за листанием, подгрузить прошлые недели. */
+function initWeekCarousel() {
+  const car = $("#wcar");
+  if (!car) return;
+  S.homeWeek = 0;
+  car.scrollLeft = car.scrollWidth;
+  let t = null;
+  car.addEventListener("scroll", () => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      const idx = Math.round(car.scrollLeft / car.clientWidth), off = idx - WEEKS_BACK;
+      if (off !== S.homeWeek) { S.homeWeek = off; haptic(); const d = $("#wdots"); if (d) d.innerHTML = weekDots(off); }
+    }, 60);
   }, { passive: true });
-  card.addEventListener("touchend", e => {
-    card.style.transform = "";
-    if (x0 === null) return;
-    const dx = e.changedTouches[0].clientX - x0; x0 = null;
-    if (moved && Math.abs(dx) > 45) { card.dataset.swiped = "1"; setTimeout(() => delete card.dataset.swiped, 400); homeWeekGo(dx > 0 ? -1 : 1); }
-  });
-  card.addEventListener("click", e => { if (card.dataset.swiped) { e.stopPropagation(); e.preventDefault(); } }, true);
+  if (S.wkPrevT && Date.now() - S.wkPrevT < 60000) return;  // главная рисуется дважды (кэш и свежая) — второй раз не грузим
+  S.wkPrevT = Date.now();
+  api("weeks_recent", { n: WEEKS_BACK }).then(r => {
+    LS.set("wkPrev", r.weeks);
+    const c = $("#wcar");
+    if (!c) return;
+    r.weeks.forEach(x => { const el = c.querySelector(`[data-o="${x.off}"]`); if (el) el.innerHTML = weekSlideInner(x); });
+  }).catch(() => {});
 }
-async function homeWeekGo(d) {
-  const off = Math.min(0, (S.homeWeek || 0) + d);
-  if (off === (S.homeWeek || 0)) return;
-  const card = $("#homeWeek");
-  if (!card) return;
-  S.homeWeek = off; S.money.week = off; haptic();
-  const cached = off === 0 ? S.dash && S.dash.week : LS.get("wk" + off);
-  card.classList.add("loadingw");
-  if (cached) card.innerHTML = homeWeekHtml(cached, off);
-  try {
-    const w = off === 0 && S.dash && S.dash.week ? S.dash.week : await api("week", { offset: off });
-    if (off !== 0) LS.set("wk" + off, w);
-    if (S.homeWeek === off && $("#homeWeek")) $("#homeWeek").innerHTML = homeWeekHtml(w, off);
-  } catch (e) {
-    if (S.homeWeek === off && $("#homeWeek")) $("#homeWeek").innerHTML = `<div class="small muted">${off === -1 ? "Прошлая неделя" : "Неделя"}</div><div class="muted small" style="margin:12px 0">${h(e.message)}</div>${weekDots(off)}`;
-  } finally { const c = $("#homeWeek"); if (c) c.classList.remove("loadingw"); }
-}
+function weekSlideInner(x) { const d = document.createElement("div"); d.innerHTML = weekSlide(x); return d.firstElementChild.innerHTML; }
+ACT.weekSlide = ds => { S.money.week = Number(ds.o); push(renderWeekDetail); };
 ACT.hoursForm = () => push(renderHoursForm);
 ACT.hoursDel = async ds => {
   if (!(await confirmBox(`Удалить часы за ${human(ds.date)}?`))) return;
