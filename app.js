@@ -100,18 +100,18 @@ function firstName() {
   return n || "";
 }
 
-/** Кольцо «ставка / чаевые». Подписи с процентами и суммами рядом, чтобы читалось и без цвета. */
+/** Кольцо «ставка / процент от продаж» — из чего зарплата. Чаевые сюда не входят. Подписи рядом, чтобы читалось и без цвета. */
 function donut(split) {
   const R = 34, C = 2 * Math.PI * R, a = C * split.base_pct / 100;
   return `<div class="split">
-    <svg viewBox="0 0 88 88" width="88" height="88" role="img" aria-label="Ставка ${split.base_pct}%, чаевые ${split.tips_pct}%">
+    <svg viewBox="0 0 88 88" width="88" height="88" role="img" aria-label="Ставка ${split.base_pct}%, процент от продаж ${split.pct_pct}%">
       <circle cx="44" cy="44" r="${R}" fill="none" stroke="var(--c-tips)" stroke-width="12"/>
       <circle cx="44" cy="44" r="${R}" fill="none" stroke="var(--c-base)" stroke-width="12"
         stroke-dasharray="${a} ${C - a}" transform="rotate(-90 44 44)"/>
     </svg>
     <div class="legend">
       <div><span class="dot" style="background:var(--c-base)"></span>${split.oklad ? "Оклад" : "Ставка"} <b>${split.base_pct}%</b><div class="muted small num">${money(split.base)}</div></div>
-      <div><span class="dot" style="background:var(--c-tips)"></span>Чаевые <b>${split.tips_pct}%</b><div class="muted small num">${money(split.tips)}</div></div>
+      <div><span class="dot" style="background:var(--c-tips)"></span>Процент <b>${split.pct_pct}%</b><div class="muted small num">${money(split.pct)}</div></div>
     </div></div>`;
 }
 
@@ -143,17 +143,8 @@ function drawHome(d) {
   if (d.month) {
     const m = d.month;
     html += `<div class="card"><div class="row between"><h2 style="margin:0">Деньги · ${h(m.title)}</h2>
-      <button class="btn sm ghost" data-act="moHistory">по месяцам ›</button></div>`;
-    if (m.row) {
-      html += `<div class="big num" style="margin:8px 0 2px">${money(m.row.total)}</div><div class="muted small">итого к выплате · ${hrs(m.row.hours)} ч</div>`;
-      if (m.split) html += donut(m.split);
-      if (m.row.deduct) html += `<div class="muted small">Вычет: −${money(m.row.deduct)}</div>`;
-    } else {
-      html += `<div class="row between" style="margin-top:8px"><div><div class="big num">${hrs(m.hours)} ч</div><div class="muted small">отработано ${h(m.source)}</div></div>
-        ${m.estimate ? `<div class="right"><div class="big num">≈${money(m.estimate)}</div><div class="muted small">по ставке, без чаевых</div></div>` : ""}</div>
-        <div class="muted small" style="margin-top:8px"><span class="tag warn">предварительно</span> Чаевые и итог появятся вместе с листом месяца.</div>`;
-      if (d.last && d.last.split) html += `<div class="sep"></div><div class="row between"><b>${h(d.last.title)}</b><span class="num">${money(d.last.row.total)}</span></div>${donut(d.last.split)}`;
-    }
+      ${m.prev_title ? `<button class="btn sm ghost" data-act="moPrev">${h(m.prev_title)} ›</button>` : ""}</div>`;
+    html += salaryBlock(m) + tipsLine(m.tips);
     html += `</div>`;
   }
 
@@ -195,6 +186,30 @@ function drawHome(d) {
 }
 ACT.openStock = () => push(renderStock);
 ACT.moHistory = () => push(renderMoneyHistory);
+ACT.moPrev = () => { S.money.offset = -1; push(renderMoneyHistory); };
+
+/** Зарплата за месяц: ставка + процент от продаж − вычет. Итог из листа месяца, а пока его нет — вживую из «ТабельБот». */
+function salaryBlock(m) {
+  if (m.row) {
+    const x = m.row;
+    let html = `<div class="big num" style="margin:8px 0 2px">${money(x.total)}</div>
+      <div class="muted small">${m.live ? "зарплата сейчас" : "зарплата к выплате"} · ${hrs(x.hours)} ч</div>`;
+    if (m.split && m.split.pct) html += donut(m.split);  // без процента кольцо — сплошная ставка, смысла нет
+    if (x.deduct) html += `<div class="muted small">Вычет: −${money(x.deduct)}</div>`;
+    if (m.live && !x.pct && !(x.rate >= 5000)) html += `<div class="muted small">Процент от продаж появится, когда бар-менеджер внесёт продажи.</div>`;
+    if (m.live) html += `<div class="muted small" style="margin-top:6px"><span class="tag warn">идёт месяц</span> считается по «ТабельБот», итог — после закрытия месяца</div>`;
+    return html;
+  }
+  return `<div class="row between" style="margin-top:8px"><div><div class="big num">${hrs(m.hours)} ч</div><div class="muted small">отработано ${h(m.source)}</div></div>
+    ${m.estimate ? `<div class="right"><div class="big num">≈${money(m.estimate)}</div><div class="muted small">по ставке, без процента</div></div>` : ""}</div>
+    <div class="muted small" style="margin-top:8px"><span class="tag warn">предварительно</span> Процент от продаж и итог появятся в «ТабельБот» и листе месяца.</div>`;
+}
+/** Чаевые — отдельно от зарплаты: сумма колонки «Чаевые» по неделям месяца. */
+function tipsLine(t) {
+  if (!t || (!t.weeks && !t.missed)) return "";
+  return `<div class="sep"></div><div class="stat"><span>Чаевые за месяц <span class="muted small">по неделям · ${t.weeks} нед.</span></span><b class="num">${money(t.sum)}</b></div>
+    <div class="muted small">Выдаются понедельно, в зарплату не входят.${t.missed ? " Часть недель уже перезаписана в таблице." : ""}</div>`;
+}
 ACT.weekDetail = () => push(renderWeekDetail);
 
 async function renderMoneyHistory() {
@@ -207,26 +222,27 @@ async function renderMoneyHistory() {
 function monthCard(r) {
   let html = `<div class="monthnav"><button data-act="moMonth" data-d="-1">‹</button>
     <b>${h(r.title)}</b><button data-act="moMonth" data-d="1" ${S.money.offset >= 0 ? "disabled" : ""}>›</button></div><div class="card">`;
+  if (r.row && r.live) html += `<div class="muted small" style="margin-bottom:6px"><span class="tag warn">идёт месяц</span> по «ТабельБот»</div>`;
   if (r.row) {
     const x = r.row;
     html += `<div class="stat"><span>Часы</span><b class="num">${hrs(x.hours)}</b></div>`;
     if (x.rate && x.rate >= 5000) html += `<div class="stat"><span>Оклад</span><span class="num">${money(x.rate)}</span></div>`;
     else if (x.rate) html += `<div class="stat"><span>По ставке <span class="muted small">${hrs(x.hours)} × ${money(x.rate)}</span></span><span class="num">${money(x.hours * x.rate)}</span></div>`;
-    if (x.tips) html += `<div class="stat"><span>Чаевые${x.share ? ` <span class="muted small">доля ${h(x.share)}</span>` : ""}</span><span class="num">${money(x.tips)}</span></div>`;
+    if (x.pct) html += `<div class="stat"><span>Процент от продаж${x.share ? ` <span class="muted small">доля ${h(x.share)}</span>` : ""}</span><span class="num">${money(x.pct)}</span></div>`;
+    else if (r.live && !(x.rate >= 5000)) html += `<div class="stat"><span>Процент от продаж</span><span class="muted small">ещё не внесён</span></div>`;
     if (x.deduct) html += `<div class="stat"><span>Вычет</span><span class="num" style="color:var(--danger)">−${money(x.deduct)}</span></div>`;
     for (const e of r.extra) html += `<div class="stat small muted"><span>в т.ч. «${h(e.name)}»</span><span class="num">${hrs(e.hours)} ч${e.total ? " · " + money(e.total) : ""}</span></div>`;
-    if (x.total !== null) html += `<div class="total"><span>Итого к выплате</span><span class="big num">${money(x.total)}</span></div>`;
-    const base = x.rate ? (x.rate >= 5000 ? x.rate : x.hours * x.rate) : 0, tips = x.tips || 0;
-    if (base + tips > 0) { const bp = Math.round(base / (base + tips) * 100); html += donut({ base, tips, base_pct: bp, tips_pct: 100 - bp, oklad: x.rate >= 5000 }); }
+    if (x.total !== null) html += `<div class="total"><span>${r.live ? "Зарплата сейчас" : "Зарплата к выплате"}</span><span class="big num">${money(x.total)}</span></div>`;
+    if (r.split && r.split.pct) html += donut(r.split);
     html += `<div class="muted small" style="margin-top:6px">Из листа «${h(r.tab)}»</div>`;
   } else {
     html += `<div class="stat"><span>Отработано пока</span><b class="num">${hrs(r.hours)} ч</b></div><div class="muted small">${h(r.source)}</div>`;
     if (r.rate_hint && r.rate_hint < 5000) html += `<div class="total"><span>По ставке ≈</span><span class="big num">${money(r.hours * r.rate_hint)}</span></div>
-      <div class="muted small">${hrs(r.hours)} × ${money(r.rate_hint)}, без чаевых</div>`;
+      <div class="muted small">${hrs(r.hours)} × ${money(r.rate_hint)}, без процента от продаж</div>`;
     else if (r.rate_hint) html += `<div class="stat"><span>Оклад</span><span class="num">${money(r.rate_hint)}</span></div>`;
-    html += `<div class="muted small" style="margin-top:8px"><span class="tag warn">предварительно</span> Чаевые посчитаются, когда в таблице появится лист месяца.</div>`;
+    html += `<div class="muted small" style="margin-top:8px"><span class="tag warn">предварительно</span> Процент от продаж посчитается в «ТабельБот» и листе месяца.</div>`;
   }
-  return html + "</div>";
+  return html + tipsLine(r.tips) + "</div>";
 }
 ACT.moMonth = ds => { S.money.offset = Math.min(0, S.money.offset + Number(ds.d)); renderMoneyHistory(); };
 
@@ -778,18 +794,25 @@ function renderAdminMoney() {
     <div class="item tap chev" data-act="aOpen" data-s="salary"><div class="t">Зарплата всех за месяц</div></div></div></div>
     <div class="card"><label class="l" style="margin-top:0">Нетмонет за эту неделю</label>
     <div class="row"><input class="f num" id="aNm" type="number" inputmode="decimal" placeholder="9080"><button class="btn sm" data-act="aNm">Записать</button></div>
-    <label class="l">Неделя с ${h(a.week.monday)} пишется в лист</label>
-    <select class="f" id="aWeek">${a.week.tabs.map(t => `<option ${t === a.week.tab ? "selected" : ""}>${h(t)}</option>`).join("") || `<option>${h(a.week.tab)}</option>`}</select></div>`;
-  $("#aWeek").addEventListener("change", async e => { try { await api("admin_week", { tab: e.target.value }); toast("Лист недели изменён"); } catch (er) { toast(er.message); } });
+    <div class="muted small" style="margin-top:8px">Эта неделя (с ${h(human(a.week.monday))}) пишется в лист «${h(a.week.tab)}». Лист выбирается сам; исправить — в «Данных».</div></div>`;
 }
 function renderAdminData() {
   setHead("Данные");
   const a = S.adm;
   view.innerHTML = `<div class="card"><button class="btn ghost" data-act="aRefresh">🔄 Перечитать таблицы сейчас</button>
     <button class="btn ghost" data-act="aAllergen">🧾 Дописать аллергены из ТК в таблицу</button></div>
+    <div class="card"><label class="l" style="margin-top:0">Лист для этой недели (с ${h(human(a.week.monday))})</label>
+    <select class="f" id="aWeek">${a.week.tabs.map(t => `<option ${t === a.week.tab ? "selected" : ""}>${h(t)}</option>`).join("") || `<option>${h(a.week.tab)}</option>`}</select>
+    <div class="muted small" style="margin-top:6px">Выбирается сам: следующий после прошлой недели. Меняй, только если программа ошиблась — сюда пойдут все часы и чаевые этой недели. Посмотреть другие недели — «Деньги» → «Неделя».</div></div>
     <div class="card"><div class="stat"><span>Бот на компьютере</span><span>${a.bot_online ? '<span class="tag ok">на связи</span>' : '<span class="tag bad">не на связи</span>'}</span></div>
     <div class="stat"><span>Лист «Аллергены»</span><span>${a.allergen_sheet ? "заполнен" : "пустой"}</span></div>
     <div class="muted small" style="margin-top:6px">Без бота не работают «Чай» в чате, часы в личке и напоминания. Приложение работает и без него.</div></div>`;
+  $("#aWeek").addEventListener("change", async e => {
+    const t = e.target.value;
+    if (!confirm(`Писать неделю с ${human(a.week.monday)} в лист «${t}»? Все часы и чаевые этой недели пойдут туда.`)) { e.target.value = a.week.tab; return; }
+    try { await api("admin_week", { tab: t }); a.week.tab = t; toast("Лист недели изменён"); }
+    catch (er) { e.target.value = a.week.tab; toast(er.message); }
+  });
 }
 
 /** Открыть / закрыть доступ: на экране сразу, запрос — в фоне. */
@@ -884,12 +907,14 @@ ACT.aNm = async (ds, el) => {
 };
 ACT.aRefresh = async (ds, el) => { el.disabled = true; try { await api("admin_refresh"); S.tk = null; S.al = null; toast("Обновил"); } catch (e) { toast(e.message); } el.disabled = false; };
 ACT.aAllergen = async (ds, el) => { el.disabled = true; try { const r = await api("admin_allergen_fill"); S.al = null; toast(r.added ? `Добавил позиций: ${r.added}` : "Новых позиций нет"); if (tg) tg.openLink(r.url); else window.open(r.url); } catch (e) { toast(e.message); } el.disabled = false; };
-ACT.aOpen = ds => push(ds.s === "tips" ? renderAdminTips : () => renderAdminSalary(-1));
-async function renderAdminTips() {
+ACT.aOpen = ds => push(ds.s === "tips" ? () => renderAdminTips() : () => renderAdminSalary(0));
+/** Только просмотр: выбор листа здесь не меняет, куда пишется неделя. */
+async function renderAdminTips(tab) {
   setHead("К выдаче за неделю"); loading();
   try {
-    const t = await api("admin_tips");
-    view.innerHTML = `<div class="card"><h2>Лист «${h(t.tab)}»</h2><table class="t"><tr><th>Кто</th><th class="r">Взял</th><th class="r">К выдаче</th></tr>
+    const t = await api("admin_tips", tab ? { tab } : {});
+    view.innerHTML = `<div class="chips wrap" style="margin-bottom:8px">${t.tabs.map(x => `<button class="chip ${x === t.tab ? "on" : ""}" data-act="aTipsTab" data-t="${h(x)}">${h(x)}${x === t.current ? " · сейчас" : ""}</button>`).join("")}</div>
+      <div class="card"><h2>Лист «${h(t.tab)}»</h2><div class="muted small" style="margin:-4px 0 8px">${t.tab === t.current ? "эта неделя" : t.monday ? `неделя с ${h(human(t.monday))}` : "старая неделя"}</div><table class="t"><tr><th>Кто</th><th class="r">Взял</th><th class="r">К выдаче</th></tr>
       ${t.people.map(p => `<tr><td>${h(p.name)}</td><td class="r">${h(p.took || "—")}</td><td class="r"><b>${h(p.pay || "—")}</b></td></tr>`).join("")}</table></div>`;
   } catch (e) { fail(e); }
 }
@@ -899,12 +924,14 @@ async function renderAdminSalary(off) {
     const s = await api("admin_salary", { offset: off });
     const sum = s.rows.reduce((a, r) => a + (r.total || 0), 0);
     view.innerHTML = `<div class="monthnav"><button data-act="aSal" data-o="${off - 1}">‹</button><b>${h(s.title)}</b><button data-act="aSal" data-o="${off + 1}" ${off >= 0 ? "disabled" : ""}>›</button></div>
+      ${s.live ? `<div class="muted small" style="margin-bottom:6px"><span class="tag warn">идёт месяц</span> по «ТабельБот», итог — после закрытия месяца</div>` : ""}
       <div class="card">${s.tab ? `<table class="t"><tr><th>Кто</th><th class="r">Часы</th><th class="r">Итого</th></tr>
       ${s.rows.map(r => `<tr><td>${h(r.name)}</td><td class="r">${hrs(r.hours)}</td><td class="r"><b>${money(r.total)}</b></td></tr>`).join("")}
       <tr><td><b>Всего</b></td><td></td><td class="r"><b>${money(sum)}</b></td></tr></table>` : empty("🗓", "Листа за этот месяц нет")}</div>`;
   } catch (e) { fail(e); }
 }
 ACT.aSal = ds => replaceTop(() => renderAdminSalary(Number(ds.o)));
+ACT.aTipsTab = ds => replaceTop(() => renderAdminTips(ds.t));
 
 // ---------- справочник соусов: ссылки в составе и окно снизу ----------
 const GL_NOT = "[^0-9a-zа-я]";
