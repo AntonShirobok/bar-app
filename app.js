@@ -1489,14 +1489,25 @@ function drawBar(p) {
       <button class="btn sm" data-act="broAnswer" data-h="${h(x.h)}" data-y="1">Принять</button>
       <button class="btn sm ghost" data-act="broAnswer" data-h="${h(x.h)}" data-y="0">Не сейчас</button></div>`).join("")}</div></div>`;
   }
-  const broTag = { active: '<span class="tag ok">BusBro</span>', out: '<span class="tag">позвал</span>', in: '<span class="tag warn">зовёт</span>' };
+  // BusBro: справа у человека — что с ним можно сделать. Сервер без BusBro не присылает key — тогда как раньше.
+  const others = p.here.filter(x => x.key), canInvite = !!(me && me.in && !me.anon);
+  const broAction = x => {
+    if (!x.key) return "";
+    if (x.bro === "active") return '<span class="tag ok">🤝 BusBro</span>';
+    if (x.bro === "out") return '<span class="tag">ждём ответа</span>';
+    if (x.bro === "in") return `<button class="btn sm" data-act="broAccept" data-h="${h(x.h)}" data-n="${h(x.name)}">Принять</button>`;
+    return canInvite ? `<button class="btn sm ghost" data-act="broInvite" data-k="${h(x.key)}" data-n="${h(x.name)}">＋ BusBro</button>` : "";
+  };
   html += `<div class="card"><h2>Сейчас в баре · ${p.total}</h2>`;
+  if (p.busbro && others.some(x => !x.bro)) {
+    const hint = !(me && me.in) ? "Отметься «Я в баре», чтобы звать людей в BusBro."
+      : me.anon ? "Невидимка не зовёт в BusBro — нажми «Показать меня»."
+      : "«＋ BusBro» — позвать в друзья по бару: когда один из вас придёт в Bus, бот напишет второму.";
+    html += `<div class="muted small" style="margin:-4px 0 8px">${hint}</div>`;
+  }
   if (!p.here.length && !p.anon) html += `<div class="muted small">Пока никто не отметился</div>`;
-  else html += `<div class="list">${p.here.map(x => {
-      const tap = x.key ? ` tap" data-act="broTap" data-k="${h(x.key)}" data-n="${h(x.name)}" data-s="${h(x.bro || "")}" data-h="${h(x.h || "")}` : "";
-      return `<div class="item${x.me ? " meitem" : ""}${tap}"><div class="ava">${h(initials(x.name))}</div>
-      <div class="grow t">${h(x.name)}</div>${broTag[x.bro] || ""}<div class="muted small num">с ${h(x.time)}</div></div>`;
-    }).join("")}
+  else html += `<div class="list">${p.here.map(x => `<div class="item${x.me ? " meitem" : ""}"><div class="ava">${h(initials(x.name))}</div>
+      <div class="grow"><div class="t ell">${h(x.name)}${x.me ? ' <span class="muted small">· это ты</span>' : ""}</div><div class="s num">с ${h(x.time)}</div></div>${broAction(x)}</div>`).join("")}
       ${p.anon ? `<div class="item muted">👻 и ещё ${p.anon} инкогнито</div>` : ""}</div>`;
   html += `</div>`;
   if (p.busbro) html += busbroCard(bb);
@@ -1506,7 +1517,7 @@ function drawBar(p) {
 function busbroCard(bb) {
   let html = `<div class="card"><h2>Мои BusBro${bb.bros.length ? " · " + bb.bros.length : ""}</h2>`;
   if (!bb.bros.length && !bb.outgoing.length) {
-    return html + `<div class="muted small">Нажми на человека в «Сейчас в баре», чтобы позвать в BusBro. Когда кто-то из вас отмечается в Bus (не невидимкой), бот пишет второму. Ник и профиль Telegram никто не видит.</div></div>`;
+    return html + `<div class="muted small">Пока никого. Нажми «＋ BusBro» у человека в «Сейчас в баре». Когда кто-то из вас отмечается в Bus (не невидимкой), бот пишет второму. Ник и профиль Telegram никто не видит.</div></div>`;
   } else {
     html += `<div class="list">${bb.bros.map(x => `<div class="item"><div class="ava">${h(initials(x.name))}</div>
       <div class="grow t">${h(x.name)}${x.mute ? ' <span class="tag">без уведомлений</span>' : ""}</div>
@@ -1525,20 +1536,12 @@ async function barAction(action, params, el, done) {
   catch (e) { toast(e.message); if (el) el.disabled = false; }
 }
 ACT.checkin = (ds, el) => barAction("checkin", { anon: ds.anon === "1" }, el);
-ACT.broTap = async (ds, el) => {
-  if (ds.s === "active") return toast(`${ds.n} — твой BusBro`);
-  if (ds.s === "out") return toast("Позвал — ждём ответа");
-  if (ds.s === "in") {
-    if (await confirmBox(`${ds.n} зовёт тебя в BusBro. Принять?`)) barAction("busbro_answer", { h: ds.h, yes: true }, el, "Теперь вы BusBro 🤝");
-    return;
-  }
-  const me = S.bar && S.bar.me;
-  if (!(me && me.in)) return toast("Позвать в BusBro можно, когда ты в баре — сначала отметься");
-  if (me.anon) return toast("Невидимка никого не зовёт — сначала нажми «Показать меня»");
+ACT.broInvite = async (ds, el) => {
   if (await confirmBox(`Позвать ${ds.n} в BusBro? Когда кто-то из вас отметится в Bus, бот напишет второму. Ник и профиль Telegram никто не увидит.`)) {
     barAction("busbro_invite", { key: ds.k }, el, "Позвал — бот передаст приглашение");
   }
 };
+ACT.broAccept = (ds, el) => barAction("busbro_answer", { h: ds.h, yes: true }, el, `Теперь вы с ${ds.n} BusBro 🤝`);
 ACT.broAnswer = (ds, el) => barAction("busbro_answer", { h: ds.h, yes: ds.y === "1" }, el, ds.y === "1" ? "Теперь вы BusBro 🤝" : "");
 ACT.broMute = (ds, el) => barAction("busbro_mute", { h: ds.h, mute: ds.m === "1" }, el, ds.m === "1" ? "Уведомления выключены" : "Уведомления включены");
 ACT.broRemove = async (ds, el) => {

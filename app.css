@@ -57,6 +57,8 @@ button, input, select { font: inherit; color: inherit; }
 .item.tap:active { background: var(--soft); }
 .item .t { font-weight: 500; }
 .item .s { color: var(--hint); font-size: 13px; }
+.item .t.ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item > .btn.sm, .item > .tag { flex: none; }
 .chev::after { content: "›"; color: var(--hint); font-size: 20px; margin-left: auto; }
 .big { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
 .num { font-variant-numeric: tabular-nums; }
