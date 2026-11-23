@@ -4,6 +4,23 @@
 const tg = window.Telegram ? window.Telegram.WebApp : null;
 if (tg) { tg.ready(); tg.expand(); document.documentElement.dataset.tg = "1"; }
 
+/** Тема: auto — как в Telegram, light / dark — своя, сильнее телеграмной. Хранится на этом телефоне. */
+const THEME_BG = { light: ["#f1f1f4", "#ffffff"], dark: ["#0e0e11", "#1a1a1f"] };
+function applyTheme(t, fromUser) {
+  const root = document.documentElement;
+  if (THEME_BG[t]) root.dataset.theme = t; else delete root.dataset.theme;
+  if (!tg || (!THEME_BG[t] && !fromUser)) return;  // «как в Telegram» при запуске — ничего не трогаем
+  try {
+    const [bg, card] = THEME_BG[t] || ["bg_color", "bg_color"];
+    if (tg.setHeaderColor) tg.setHeaderColor(THEME_BG[t] ? bg : "bg_color");
+    if (tg.setBackgroundColor) tg.setBackgroundColor(THEME_BG[t] ? bg : "bg_color");
+    if (tg.setBottomBarColor) tg.setBottomBarColor(THEME_BG[t] ? card : "bottom_bar_bg_color");
+  } catch (e) { /* старый Telegram — только страница */ }
+}
+let THEME = "auto";
+try { THEME = localStorage.getItem("bar:theme") || "auto"; } catch (e) {}
+applyTheme(THEME);
+
 const $ = (s, el = document) => el.querySelector(s);
 const view = $("#view");
 const WD = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
@@ -460,12 +477,15 @@ function renderRecipe(id, calc) {
   const c = calc || { mode: "batch", n: 1 };
   const vol = c.mode === "ml" ? c.n : c.mode === "pack" ? c.n * (ps || 0) : c.mode === "port" ? c.n * (r.portion || 0) : (r.yield || null);
   const amounts = vol ? scale(r, vol) : r.ing.map(i => i.amount);
-  let html = `<div class="card"><div class="row between"><h3>${r.pf ? "🧪 " : ""}${h(r.name)}</h3>${badge(r)}</div>
+  let html = c.stock ? `<div class="card soft"><div class="row between"><div><div class="muted small">Сток · ${h(c.stock.name)}</div>
+      <div>Нужно сделать <b class="num">${fmt(c.stock.make)} ${h(c.stock.unit)}</b>${c.note ? ` <span class="muted small">— ${h(c.note)}</span>` : ""}</div></div>
+      <button class="btn sm ghost" data-act="stockPick" data-n="${h(c.stock.name)}">Другая ТК</button></div></div>` : "";
+  html += `<div class="card"><div class="row between"><h3>${r.pf ? "🧪 " : ""}${h(r.name)}</h3>${badge(r)}</div>
     <div class="muted small">${[r.yield ? `выход ${fmt(r.yield)} ${h(r.unit)}` : "", r.packets && !r.pf ? `${fmt(r.packets)} пак.` : "", r.portion && !r.pf ? `порция ${fmt(r.portion)} ${h(r.unit)}` : ""].filter(Boolean).join(" · ")}</div>`;
   if (r.allergens.length) html += `<div style="margin-top:8px">${r.allergens.map(a => `<span class="tag warn">${h(S.tk.allergen_titles[a])}</span>`).join(" ")}
     ${r.allergens_checked ? "" : '<span class="muted small">— подсказка, не проверено</span>'}</div>`;
   html += `</div><div class="card"><h2>Пересчитать</h2><div class="chips">
-    ${[["batch", "Как в ТК"], ["ml", r.unit === "гр" ? "Граммы" : "Миллилитры"], ...(ps && !r.pf ? [["pack", "Пакеты"]] : []), ...(r.portion && !r.pf ? [["port", "Порции"]] : [])]
+    ${[["batch", "Как в ТК"], ["ml", r.unit === "гр" ? "Граммы" : "Миллилитры"], ...(ps && (!r.pf || c.mode === "pack") ? [["pack", "Пакеты"]] : []), ...(r.portion && !r.pf ? [["port", "Порции"]] : [])]
       .map(([m, t]) => `<button class="chip ${c.mode === m ? "on" : ""}" data-act="calcMode" data-id="${r.id}" data-m="${m}">${t}</button>`).join("")}</div>`;
   if (c.mode !== "batch") html += `<div class="row"><input class="f num" id="calcN" type="number" inputmode="decimal" min="0" step="any" value="${c.n}" style="max-width:140px">
     <span class="muted">${c.mode === "ml" ? h(r.unit) : c.mode === "pack" ? `пак. × ${fmt(ps)} ${h(r.unit)}` : `порц. × ${fmt(r.portion)} ${h(r.unit)}`}</span></div>
@@ -484,7 +504,7 @@ function renderRecipe(id, calc) {
   const inp = $("#calcN");
   if (inp) inp.addEventListener("change", e => {
     const v = parseFloat(String(e.target.value).replace(",", "."));
-    replaceTop(() => renderRecipe(id, { mode: c.mode, n: v > 0 ? v : 1 }));
+    replaceTop(() => renderRecipe(id, { ...c, n: v > 0 ? v : 1, note: "" }));
   });
 }
 ACT.calcMode = ds => {
@@ -498,7 +518,8 @@ async function renderStock() {
   setHead("Заготовки", "Сток ПФ");
   loading();
   let d;
-  try { d = await api("stock"); } catch (e) { return fail(e); }
+  try { [d] = await Promise.all([api("stock"), loadTK()]); } catch (e) { return fail(e); }
+  S.stock = d;
   const items = S.stockAll ? d.items : d.items.filter(i => i.make > 0);
   const need = d.items.filter(i => i.make > 0).length;
   let html = `<div class="seg"><button data-act="stockMode" data-a="0" class="${S.stockAll ? "" : "on"}">Нужно сделать · ${need}</button>
@@ -507,13 +528,64 @@ async function renderStock() {
   const groups = {};
   for (const i of items) (groups[i.section] = groups[i.section] || []).push(i);
   for (const [sec, list] of Object.entries(groups)) {
-    html += `<div class="card"><h2>${h(sec)}</h2><div class="list">${list.map(i => `<div class="item"><div class="grow"><div class="t">${h(i.name)}</div>
-      <div class="s">есть ${fmt(i.have ?? 0) || 0} из ${fmt(i.need ?? 0) || 0} ${h(i.unit)}</div></div>
+    html += `<div class="card"><h2>${h(sec)}</h2><div class="list">${list.map(i => `<div class="item ${i.link ? "tap chev" : ""}" ${i.link ? `data-act="stockOpen" data-n="${h(i.name)}"` : ""}><div class="grow"><div class="t">${i.link ? "🧪 " : ""}${h(i.name)}</div>
+      <div class="s">есть ${fmt(i.have ?? 0) || 0} из ${fmt(i.need ?? 0) || 0} ${h(i.unit)}${i.link ? "" : ` · <span class="link" data-act="stockPick" data-n="${h(i.name)}">привязать ТК</span>`}</div></div>
       ${i.make > 0 ? `<div class="right"><b class="num">${fmt(i.make)}</b> <span class="muted small">${h(i.unit)}</span></div>` : '<span class="tag ok">есть</span>'}</div>`).join("")}</div></div>`;
   }
   view.innerHTML = html;
 }
 ACT.stockMode = ds => { S.stockAll = ds.a === "1"; renderStock(); };
+
+/** Сколько сделать по ТК: пакеты/бутылки/штуки — пакетами ТК, кг — граммами, л — миллилитрами. */
+function stockCalc(i, r) {
+  const u = String(i.unit || "").toLowerCase().replace(/\.$/, ""), make = i.make > 0 ? i.make : 0;
+  const stock = { name: i.name, make, unit: i.unit };
+  if (!make) return { mode: "batch", n: 1, stock, note: "по стоку всё есть" };
+  if (u === "кг" && r.unit === "гр") return { mode: "ml", n: make * 1000, stock };
+  if (u === "л" && r.unit === "мл") return { mode: "ml", n: make * 1000, stock };
+  if (r.yield && r.packets) return { mode: "pack", n: make, stock };
+  return { mode: "batch", n: 1, stock, note: "в ТК нет пакетов — посчитай по выходу" };
+}
+ACT.stockOpen = ds => {
+  const i = (S.stock && S.stock.items || []).find(x => x.name === ds.n), r = i && byId(i.link);
+  if (!r) return toast("Тех. карта не найдена — обнови список");
+  push(() => renderRecipe(r.id, stockCalc(i, r)));
+};
+ACT.stockPick = (ds, el, e) => { if (e) e.stopPropagation(); push(() => renderStockPick(ds.n)); };
+
+/** Выбор тех. карты для позиции стока: сначала похожие по словам, поиск по всем. */
+function renderStockPick(name) {
+  setHead("Привязать ТК", name);
+  const words = s => String(s).toLowerCase().replace(/ё/g, "е").replace(/\([^)]*\)/g, " ").split(/[^0-9a-zа-я]+/).filter(w => w.length > 2);
+  const mine = words(name);
+  const score = r => words(r.name).filter(w => mine.some(m => m.slice(0, 4) === w.slice(0, 4))).length;
+  const i = (S.stock && S.stock.items || []).find(x => x.name === name);
+  const draw = q => {
+    const qq = q.trim().toLowerCase().replace(/ё/g, "е");
+    let list = S.tk.recipes.map(r => ({ r, s: score(r) }));
+    list = qq ? list.filter(x => x.r.name.toLowerCase().replace(/ё/g, "е").includes(qq)) : list.filter(x => x.s > 0 || x.r.pf);
+    list.sort((a, b) => b.s - a.s || (b.r.pf - a.r.pf) || a.r.name.localeCompare(b.r.name));
+    $("#spList").innerHTML = list.length ? `<div class="list">${list.slice(0, 60).map(x => `<div class="item tap" data-act="stockLink" data-n="${h(name)}" data-id="${x.r.id}">
+      <div class="grow"><div class="t">${x.r.pf ? "🧪 " : ""}${h(x.r.name)}</div><div class="s">${h((S.tk.sheets.find(s => s.idx === x.r.sheet) || {}).title || "")}</div></div></div>`).join("")}</div>` : empty("🔎", "Ничего не нашлось");
+  };
+  view.innerHTML = `<input class="search" id="spq" placeholder="Поиск тех. карты">
+    ${i && i.link ? `<button class="btn ghost" data-act="stockLink" data-n="${h(name)}" data-id="">Убрать привязку</button>` : ""}
+    <div class="card" style="padding:0" id="spList"></div>`;
+  $("#spq").addEventListener("input", e => draw(e.target.value));
+  draw("");
+}
+ACT.stockLink = async ds => {
+  try {
+    const res = await api("stock_link", { stock: ds.n, recipe_id: ds.id || null });
+    const i = S.stock && S.stock.items.find(x => x.name === ds.n);
+    if (i) { i.link = res.link; i.link_saved = !!res.link; }
+    toast(res.link ? "Привязано — теперь открывается из заготовок" : "Привязка убрана");
+    S.stack.pop();  // экран выбора
+    const top = S.stack[S.stack.length - 1];
+    if (res.link && i && top && top !== renderStock) { S.stack[S.stack.length - 1] = () => renderRecipe(res.link, stockCalc(i, byId(res.link))); }
+    backBtn(); (S.stack[S.stack.length - 1] || (() => go(S.tab)))();
+  } catch (e) { toast(e.message); }
+};
 
 // ================= МЕНЮ =================
 async function renderMenu() {
@@ -608,9 +680,17 @@ function renderMore() {
     ${row("open", "profile", "🙋", "Профиль", h(S.me.role || "роль не назначена"))}
     ${row("open", "bar", "🍻", "Грязнульки", "Кто сейчас в баре, счётчики")}
     ${S.me.is_owner ? row("open", "admin", "🔐", "Админ", "Сотрудники, роли, зарплаты, Нетмонет") : ""}</div></div>
+    <div class="card"><h2>Тема</h2><div class="seg theme">${[["auto", "Как в Telegram"], ["light", "Светлая"], ["dark", "Тёмная"]]
+      .map(([k, t]) => `<button data-act="theme" data-t="${k}" class="${THEME === k ? "on" : ""}">${t}</button>`).join("")}</div></div>
     <div class="muted small" style="text-align:center;margin-top:14px">Данные из Google Таблиц обновляются раз в 10 минут</div>`;
   view.innerHTML = html;
 }
+ACT.theme = ds => {
+  THEME = ds.t;
+  try { localStorage.setItem("bar:theme", THEME); } catch (e) {}
+  applyTheme(THEME, true);
+  renderMore();
+};
 ACT.open = ds => push({ myhours: renderMyHours, bar: renderBar, tk: renderTK, stock: renderStock, allergens: renderAllergens, guest: renderGuest, admin: renderAdmin, profile: renderProfile }[ds.s]);
 
 // ---------- мои часы ----------
