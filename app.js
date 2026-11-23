@@ -1474,7 +1474,9 @@ function drawBar(p) {
   S.bar = p;
   const me = p.me, bb = p.busbro || { bros: [], incoming: [], outgoing: [] };
   let html = `<div class="card hero">${countersHtml(p)}</div>`;
-  if (me && me.in) {
+  if (p.closed) {  // с 01:00 до 6 утра: Bus закрыт, отметки сняты сервером
+    html += `<div class="card"><b>🌙 Bus закрыт</b><div class="muted small" style="margin-top:4px">Бар работает до ${h(p.closes_at || "01:00")} — все отметки сняты. Отметиться можно будет завтра.</div></div>`;
+  } else if (me && me.in) {
     html += `<div class="card"><div class="row between"><div><b>Ты в баре</b> с ${h(me.time)}${me.anon ? ' <span class="tag">невидимка</span>' : ""}</div></div>
       <div class="btns" style="margin-top:8px"><button class="btn ghost" data-act="checkin" data-anon="${me.anon ? 0 : 1}">${me.anon ? "Показать меня" : "Стать невидимкой"}</button>
       <button class="btn danger" data-act="checkout">Я ушёл</button></div></div>`;
