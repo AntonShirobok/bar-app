@@ -107,13 +107,13 @@ if (tg) tg.BackButton.onClick(back);
 /** Свайп вправо — назад, как в приложениях телефона. Не мешает каруселям, полям ввода и прокрутке. */
 (function swipeBack() {
   let x0 = 0, y0 = 0, dx = 0, on = false, locked = false;
-  const SKIP = ".wcar, input, textarea, select, [data-noswipe]";
-  view.addEventListener("touchstart", e => {
+  const SKIP = ".wcar, input, textarea, select, [data-noswipe], #tabs, .sheet";  // слушаем весь экран, не только плитки
+  document.addEventListener("touchstart", e => {
     on = false; locked = false; dx = 0;
     if (!S.stack.length || e.touches.length !== 1 || e.target.closest(SKIP)) return;
     x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; on = true;
   }, { passive: true });
-  view.addEventListener("touchmove", e => {
+  document.addEventListener("touchmove", e => {
     if (!on) return;
     const ddx = e.touches[0].clientX - x0, ddy = e.touches[0].clientY - y0;
     if (!locked) {
@@ -137,8 +137,8 @@ if (tg) tg.BackButton.onClick(back);
       if (go && S.stack.length) { haptic(); back(); }
     }, 180);
   };
-  view.addEventListener("touchend", end);
-  view.addEventListener("touchcancel", end);
+  document.addEventListener("touchend", end);
+  document.addEventListener("touchcancel", end);
 })();
 $("#tabs").addEventListener("click", e => { const b = e.target.closest("button[data-tab]"); if (b) { haptic(); go(b.dataset.tab); } });
 view.addEventListener("click", e => {
@@ -918,23 +918,25 @@ function renderDish(k) {
 // ================= ЕЩЁ =================
 function renderMore() {
   setHead("Ещё");
-  const row = (act, s, icon, t, sub) => `<div class="item tap chev" data-act="${act}" ${s ? `data-s="${s}"` : ""}><span style="font-size:22px">${icon}</span><div class="grow"><div class="t">${t}</div><div class="s">${sub}</div></div></div>`;
+  // плитки: значок, название, короткая подпись; группы — подписью сверху
+  const tile = (s, icon, t, sub) => `<button class="mtile" data-act="open" data-s="${s}"><span class="mtile-ic" aria-hidden="true">${icon}</span><b>${t}</b><small>${sub}</small></button>`;
+  const group = (title, tiles) => { tiles = tiles.filter(Boolean); return tiles.length ? `<div class="mgroup">${title}</div><div class="mtiles">${tiles.join("")}</div>` : ""; };
   let html = "";
-  if (S.me.can_bar) html += `<div class="card" style="padding:0"><h2 style="padding:12px 14px 0">Бар</h2><div class="list" style="margin:0">
-    ${row("open", "tk", "🍸", "Тех. карты", "Поиск, ПФ, калькулятор батча")}
-    ${row("open", "stock", "🧪", "Заготовки", "Что нужно сделать по стоку")}
-    ${S.me.is_owner ? row("open", "orders", "🧾", "Заказ поставщикам", "Из стока — готовые сообщения по поставщикам") : ""}
-    ${row("open", "guest", "🎪", "Гостевая смена", "Заказ, сообщение и Excel")}</div></div>`;
-  if (S.me.can_hours) html += `<div class="card" style="padding:0"><div class="list" style="margin:0">
-    ${row("open", "myhours", "🕒", "Мои часы", "Смены по дням: с какого и до какого")}</div></div>`;
-  if (S.me.can_waiter) html += `<div class="card" style="padding:0"><div class="list" style="margin:0">
-    ${row("open", "waiter", "💵", "Мои смены и чаевые", "Часы из графика, свои чаевые, деньги за месяц")}</div></div>`;
-  html += `<div class="card" style="padding:0"><div class="list" style="margin:0">
-    ${row("open", "allergens", "🥜", "Аллергены", "Составы и фильтр «без…»")}
-    ${row("open", "profile", "🙋", "Профиль", h(S.me.role || "роль не назначена"))}
-    ${row("open", "bar", "🍻", "Грязнульки", "Кто сейчас в баре, счётчики")}
-    ${S.me.is_owner ? row("open", "admin", "🔐", "Админ", "Сотрудники, роли, зарплаты, Нетмонет") : ""}</div></div>
-    <div class="card"><h2>Тема</h2><div class="seg theme">${[["auto", "Как в Telegram"], ["light", "Светлая"], ["dark", "Тёмная"]]
+  if (S.me.can_bar) html += group("Бар", [
+    tile("tk", "🍸", "Тех. карты", "поиск, ПФ, батч"),
+    tile("stock", "🧪", "Заготовки", "что сделать по стоку"),
+    S.me.is_owner && tile("orders", "🧾", "Заказ", "поставщикам"),
+    tile("guest", "🎪", "Гостевая смена", "заказ и Excel")]);
+  html += group("Моё", [
+    S.me.can_hours && tile("myhours", "🕒", "Мои часы", "смены по дням"),
+    S.me.can_waiter && tile("waiter", "💵", "Смены и чаевые", "деньги за месяц"),
+    tile("profile", "🙋", "Профиль", h(S.me.role || "роль не назначена"))]);
+  html += group("Общее", [
+    tile("bar", "🍻", "Грязнульки", "кто сейчас в баре"),
+    tile("allergens", "🥜", "Аллергены", "фильтр «без…»"),
+    S.me.is_owner && tile("admin", "🔐", "Админ", "люди, зарплаты")]);
+  html += `
+    <div class="card" style="margin-top:14px"><h2>Тема</h2><div class="seg theme">${[["auto", "Как в Telegram"], ["light", "Светлая"], ["dark", "Тёмная"]]
       .map(([k, t]) => `<button data-act="theme" data-t="${k}" class="${THEME === k ? "on" : ""}">${t}</button>`).join("")}</div></div>
     <div class="muted small" style="text-align:center;margin-top:14px">Данные из Google Таблиц обновляются раз в 10 минут<br>версия ${APP_VER}</div>`;
   view.innerHTML = html;
