@@ -158,6 +158,10 @@ table.t tr.hl td { background: var(--soft); }
 .weekbar b { font-size: 14px; font-variant-numeric: tabular-nums; }
 .tapcard { cursor: pointer; }
 .tapcard:active { background: var(--soft); }
+.hero2.tapcard:active { background: var(--accent); filter: brightness(.93); }
+/* свайп назад: экран едет за пальцем */
+#view.swiping { transition: none; }
+#view.swipe-back { transition: transform .18s ease-out, opacity .18s ease-out; }
 .chev:empty::after { content: "›"; color: var(--hint); font-size: 22px; }
 
 /* --- график: календарный месяц --- */

@@ -103,6 +103,43 @@ function backBtn() {
   if (S.stack.length) tg.BackButton.show(); else tg.BackButton.hide();
 }
 if (tg) tg.BackButton.onClick(back);
+
+/** Свайп вправо — назад, как в приложениях телефона. Не мешает каруселям, полям ввода и прокрутке. */
+(function swipeBack() {
+  let x0 = 0, y0 = 0, dx = 0, on = false, locked = false;
+  const SKIP = ".wcar, input, textarea, select, [data-noswipe]";
+  view.addEventListener("touchstart", e => {
+    on = false; locked = false; dx = 0;
+    if (!S.stack.length || e.touches.length !== 1 || e.target.closest(SKIP)) return;
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; on = true;
+  }, { passive: true });
+  view.addEventListener("touchmove", e => {
+    if (!on) return;
+    const ddx = e.touches[0].clientX - x0, ddy = e.touches[0].clientY - y0;
+    if (!locked) {
+      if (Math.abs(ddx) < 10 && Math.abs(ddy) < 10) return;
+      if (ddx <= 0 || Math.abs(ddy) > Math.abs(ddx)) { on = false; return; }  // вертикальная прокрутка или влево
+      locked = true; view.classList.add("swiping");
+    }
+    dx = Math.max(0, ddx);
+    view.style.transform = `translateX(${dx}px)`;
+    view.style.opacity = String(1 - Math.min(dx / window.innerWidth, 1) * .4);
+  }, { passive: true });
+  const end = () => {
+    if (!on || !locked) { on = false; return; }
+    on = false;
+    view.classList.remove("swiping"); view.classList.add("swipe-back");
+    const go = dx > Math.min(110, window.innerWidth * .28);
+    view.style.transform = go ? `translateX(${window.innerWidth}px)` : "";
+    view.style.opacity = go ? "0" : "";
+    setTimeout(() => {
+      view.classList.remove("swipe-back"); view.style.transform = ""; view.style.opacity = "";
+      if (go && S.stack.length) { haptic(); back(); }
+    }, 180);
+  };
+  view.addEventListener("touchend", end);
+  view.addEventListener("touchcancel", end);
+})();
 $("#tabs").addEventListener("click", e => { const b = e.target.closest("button[data-tab]"); if (b) { haptic(); go(b.dataset.tab); } });
 view.addEventListener("click", e => {
   const el = e.target.closest("[data-act]");
@@ -153,7 +190,7 @@ function drawHome(d) {
   if (d.next) {
     const n = d.next, when = n.day === d.today ? "сегодня" : n.day === addDaysIso(d.today, 1) ? "завтра" : human(n.day);
     const team = n.team || [];
-    html += `<div class="card hero2"><div class="small">Ближайшая смена · ${h(when)}</div>
+    html += `<div class="card hero2 tapcard" data-act="openSchedule" role="button" aria-label="Открыть график"><div class="row between small"><span>Ближайшая смена · ${h(when)}</span><span aria-hidden="true">График ›</span></div>
       <div class="row between" style="align-items:flex-end;margin-top:2px"><div class="hero-time num">${n.start}–${n.end}</div>
       <div class="small">${hrs(n.hours)} ч${n.station ? ` · точка ${h(n.station)}` : ""}</div></div>
       ${team.length ? `<div class="ava-row">${team.slice(0, 4).map(t => `<span class="ava-s" title="${h(t)}">${h(initialsOf(t))}</span>`).join("")}
@@ -201,7 +238,7 @@ function drawHome(d) {
   const qa = [];
   if (d.waiter) qa.push(`<div class="card tapcard qa" data-act="wDay"><span class="qa-ic">💵</span><b>Чаевые за смену</b><small class="muted">и время, если не как в графике</small></div>`);
   if (S.me.can_hours) qa.push(`<div class="card tapcard qa" data-act="hoursForm"><span class="qa-ic">🕒</span><b>Записать часы</b><small class="muted">за смену</small></div>`);
-  if (d.stock_to_make !== undefined) qa.push(`<div class="card tapcard qa" data-act="openStock"><span class="qa-ic">🧪</span><b>Заготовки</b>
+  if (d.stock_to_make !== undefined && S.me.role === "бармен") qa.push(`<div class="card tapcard qa" data-act="openStock"><span class="qa-ic">🧪</span><b>Заготовки</b>
     <small style="color:${d.stock_to_make ? "var(--warn)" : "var(--ok)"}">${d.stock_to_make ? `нужно ${d.stock_to_make} поз.` : "всё есть"}</small></div>`);
   if (qa.length) html += `<div class="qa-grid ${qa.length === 1 ? "one" : ""}">${qa.join("")}</div>`;
 
@@ -225,6 +262,7 @@ function drawHome(d) {
 }
 function addDaysIso(iso, n) { const x = dt(iso); x.setDate(x.getDate() + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`; }
 ACT.openStock = () => push(renderStock);
+ACT.openSchedule = () => go("schedule");
 ACT.moHistory = () => push(renderMoneyHistory);
 ACT.moPrev = () => { S.money.offset = -1; push(renderMoneyHistory); };
 
