@@ -1565,7 +1565,9 @@ function openGloss(i) {
     .concat((e.allergens_other || []).map(a => `<span class="tag">${h(a)}</span>`)).join(" ");
   sh.innerHTML = `<div class="sheet-card" role="dialog" aria-label="${h(e.name)}"><div class="row between"><h3>${h(e.name)}</h3>
     <button class="sheet-x" aria-label="Закрыть">✕</button></div>
-    <div style="margin-top:6px">${e.composition ? linkify(e.composition, e.name) : '<span class="muted">Состав не заполнен</span>'}</div>
+    ${e.description ? `<div style="margin-top:6px">${h(e.description)}</div>` : ""}
+    ${e.composition ? `<div style="margin-top:6px">${e.description ? "<b>Состав:</b> " : ""}${linkify(e.composition, e.name)}</div>`
+      : (e.description ? "" : '<div class="muted" style="margin-top:6px">Состав не заполнен</div>')}
     ${tags ? `<div class="tags" style="margin-top:10px">${tags}</div>` : ""}</div>`;
   requestAnimationFrame(() => sh.classList.add("on"));
 }
