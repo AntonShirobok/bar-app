@@ -289,3 +289,17 @@ a.gl { color: var(--link); text-decoration: underline; text-decoration-style: do
 .switch input:checked + span { background: var(--ok); }
 .switch input:checked + span::before { transform: translateX(18px); }
 .acc-t { display: flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; text-align: left; font-size: 16px; }
+
+/* тесты */
+.mtile:disabled { opacity: .45; }
+.mtile.qdef { box-shadow: inset 0 0 0 2px var(--accent); }
+.qprog { height: 4px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 0 0 10px; }
+.qprog i { display: block; height: 100%; background: var(--accent); transition: width .25s; }
+.qtext { font-size: 17px; font-weight: 600; line-height: 1.35; white-space: pre-line; }
+.qopts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.qopt { text-align: left; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 12px;
+  padding: 13px 14px; font-size: 15px; cursor: pointer; }
+.qopt.right { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--card)); }
+.qopt.wrong { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, var(--card)); }
+.qopt.dim { opacity: .55; }
+.qopt:disabled { color: var(--text); }

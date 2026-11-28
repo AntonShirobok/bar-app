@@ -930,6 +930,7 @@ function renderMore() {
   html += group("Моё", [
     S.me.can_hours && tile("myhours", "🕒", "Мои часы", "смены по дням"),
     S.me.can_waiter && tile("waiter", "💵", "Смены и чаевые", "деньги за месяц"),
+    S.me.can_quiz && tile("quiz", "🎓", "Тесты", "меню, аллергены, стандарты"),
     tile("profile", "🙋", "Профиль", h(S.me.role || "роль не назначена"))]);
   html += group("Общее", [
     tile("bar", "🍻", "Грязнульки", "кто сейчас в баре"),
@@ -947,7 +948,7 @@ ACT.theme = ds => {
   applyTheme(THEME, true);
   renderMore();
 };
-ACT.open = ds => push({ orders: renderOrders, waiter: () => renderWaiterMonth(0), myhours: renderMyHours, bar: renderBar, tk: renderTK, stock: renderStock, allergens: renderAllergens, guest: renderGuest, admin: renderAdmin, profile: renderProfile }[ds.s]);
+ACT.open = ds => push({ orders: renderOrders, waiter: () => renderWaiterMonth(0), myhours: renderMyHours, bar: renderBar, tk: renderTK, stock: renderStock, allergens: renderAllergens, guest: renderGuest, quiz: renderQuiz, admin: renderAdmin, profile: renderProfile }[ds.s]);
 
 // ---------- официант: месяц, день ----------
 /** Карточка на главной: сколько заработал за месяц — ставка за часы и свои чаевые. */
@@ -1705,6 +1706,88 @@ async function saveCounters(body, el) {
 }
 ACT.cntAdd = (ds, el) => saveCounters({ add: { [ds.k]: Number(ds.n) } }, el);
 ACT.cntSave = (ds, el) => saveCounters({ set: { highball: $("#cnt_highball").value, champagne: $("#cnt_champagne").value } }, el);
+
+// ---------- тесты для сотрудников ----------
+function renderQuiz() {
+  setHead("Тесты", "меню, аллергены, стандарты");
+  fresh("quiz", "quiz_home", {}, d => { S.qh = d; if (S.stack[S.stack.length - 1] === renderQuiz) drawQuizHome(d); });
+}
+function drawQuizHome(d) {
+  let html = `<div class="mtiles">${d.topics.map(t => `<button class="mtile${t.key === d.default_topic ? " qdef" : ""}" data-act="qStart" data-t="${t.key}" ${t.available ? "" : "disabled"}>
+    <b>${h(t.title)}</b><small>${t.available ? h(t.sub) : t.key === "own" ? "в листе «Тесты» пока пусто" : "меню не открылось"}</small></button>`).join("")}</div>
+    <div class="muted small" style="margin:6px 4px 12px">10 вопросов, после каждого ответа — разбор. Вопросы про аллергены — только по проверенным позициям.</div>`;
+  if (d.can_results) html += `<button class="btn ghost" data-act="qResults">📊 Результаты команды</button>`;
+  html += `<div class="card" style="margin-top:12px"><h2>Мои попытки</h2>${d.mine.length ? `<div class="list">${d.mine.map(r => `
+    <div class="item"><div class="grow"><div class="t">${h(r.title)}</div><div class="s">${h(r.at)}</div></div>
+    <div class="right"><b class="num">${r.right}/${r.total}</b> <span class="tag ${qTag(r.pct)}">${r.pct}%</span></div></div>`).join("")}</div>`
+    : `<div class="muted small">Ещё не проходил</div>`}</div>`;
+  view.innerHTML = html;
+}
+const qTag = p => p >= 80 ? "ok" : p >= 50 ? "warn" : "bad";
+async function quizStart(topic, el, replace) {
+  el.disabled = true;
+  try {
+    const q = await api("quiz_start", { topic });
+    S.quiz = { ...q, topic, i: 0, answers: [], picked: null };
+    (replace ? replaceTop : push)(drawQuizQ);
+  } catch (e) { toast(e.message); el.disabled = false; }
+}
+ACT.qStart = (ds, el) => quizStart(ds.t, el, false);
+ACT.qAgain = (ds, el) => quizStart(S.quiz.topic, el, true);
+function drawQuizQ() {
+  const z = S.quiz, q = z.questions[z.i], done = z.picked !== null;
+  setHead(z.title, `вопрос ${z.i + 1} из ${z.questions.length}`);
+  view.innerHTML = `<div class="qprog"><i style="width:${(z.i + (done ? 1 : 0)) / z.questions.length * 100}%"></i></div>
+    <div class="card"><div class="qtext">${h(q.q)}</div></div>
+    <div class="qopts">${q.options.map((o, i) => {
+      const cls = !done ? "" : i === q.right ? "right" : i === z.picked ? "wrong" : "dim";
+      return `<button class="qopt ${cls}" data-act="qPick" data-i="${i}" ${done ? "disabled" : ""}>${h(o)}</button>`;
+    }).join("")}</div>
+    ${done ? `${q.explain ? `<div class="card small">${z.picked === q.right ? "✅" : "❌"} ${h(q.explain)}</div>` : ""}
+      <button class="btn" data-act="qNext">${z.i + 1 < z.questions.length ? "Дальше" : "Закончить"}</button>` : ""}`;
+}
+ACT.qPick = ds => {
+  const z = S.quiz, q = z.questions[z.i];
+  if (z.picked !== null) return;
+  z.picked = Number(ds.i); z.answers[z.i] = z.picked;
+  try { tg && tg.HapticFeedback.notificationOccurred(z.picked === q.right ? "success" : "error"); } catch (e) {}
+  drawQuizQ();
+};
+ACT.qNext = async (ds, el) => {
+  const z = S.quiz;
+  if (z.i + 1 < z.questions.length) { z.i++; z.picked = null; window.scrollTo(0, 0); drawQuizQ(); return; }
+  el.disabled = true;
+  try { z.result = await api("quiz_finish", { id: z.id, answers: z.answers }); LS.set("quiz", null); replaceTop(drawQuizResult); }
+  catch (e) { toast(e.message); el.disabled = false; }
+};
+function drawQuizResult() {
+  const z = S.quiz, r = z.result;
+  const miss = z.questions.map((q, i) => ({ q, a: z.answers[i] })).filter(x => x.a !== x.q.right);
+  setHead(z.title, "итог");
+  view.innerHTML = `<div class="card" style="text-align:center"><div class="big num">${r.right} из ${r.total}</div>
+    <span class="tag ${qTag(r.pct)}">${r.pct}%</span><div class="muted small" style="margin-top:6px">${r.pct === 100 ? "Без единой ошибки 🎉" : r.pct >= 80 ? "Хорошо, осталось чуть-чуть" : "Стоит повторить"}</div></div>
+    ${miss.length ? `<div class="card"><h2>Ошибки</h2><div class="list">${miss.map(x => `<div class="item"><div class="grow">
+      <div class="t">${h(x.q.q.split("\n")[0])}</div>${x.q.q.includes("\n") ? `<div class="s">${h(x.q.q.split("\n").slice(1).join(" "))}</div>` : ""}
+      <div class="s">Верно: <b>${h(x.q.options[x.q.right])}</b>${x.a !== undefined && x.a !== null ? ` · твой ответ: ${h(x.q.options[x.a])}` : ""}</div>
+      ${x.q.explain ? `<div class="s">${h(x.q.explain)}</div>` : ""}</div></div>`).join("")}</div></div>` : ""}
+    <div class="btns"><button class="btn ghost" data-act="qBack">К тестам</button><button class="btn" data-act="qAgain">Ещё раз</button></div>`;
+}
+ACT.qBack = () => back();
+ACT.qResults = () => push(renderQuizResults);
+function renderQuizResults() {
+  setHead("Результаты команды", "тесты");
+  fresh("quizres", "quiz_results", {}, d => {
+    if (S.stack[S.stack.length - 1] !== renderQuizResults) return;
+    if (!d.people.length) { view.innerHTML = `<div class="card">${empty("🎓", "Пока никто не проходил")}</div>`; return; }
+    view.innerHTML = `<div class="card" style="padding:0"><div class="list" style="margin:0">${d.people.map(p => `<div class="item"><div class="grow">
+      <div class="t">${h(p.name)} <span class="muted small">${h(p.role)}</span></div>
+      <div class="s">${p.tests.map(t => `${h(t.title)} <span class="tag ${qTag(t.pct)}">${t.pct}%</span>`).join(" ")}</div>
+      <div class="s">последний раз ${h(p.last.at)} · попыток ${p.attempts}</div></div></div>`).join("")}</div></div>
+      ${d.misses.length ? `<div class="card"><h2>Чаще всего ошибаются</h2><div class="list">${d.misses.map(m => `<div class="item"><div class="grow"><div class="s">${h(m.q)}</div></div>
+        <div class="right num">${m.n}×</div></div>`).join("")}</div></div>` : ""}
+      <div class="muted small" style="text-align:center">Все попытки — в листе «Тесты · результаты» таблицы приложения</div>`;
+  });
+}
 
 // ---------- старт ----------
 const TABS = {
